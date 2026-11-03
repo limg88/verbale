@@ -1,0 +1,12 @@
+.build/
+dist/
+.DS_Store
+*.gguf
+test-results/
+analysis-logbook/
+*.dmg
+.swiftpm/
+__pycache__/
+.env
+.env.*
+!.env.example

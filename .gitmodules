@@ -1,0 +1,4 @@
+[submodule "native/parakeet.cpp"]
+	path = native/parakeet.cpp
+	url = https://github.com/mudler/parakeet.cpp.git
+	ignore = dirty

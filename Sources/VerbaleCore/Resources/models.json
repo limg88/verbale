@@ -1,0 +1,29 @@
+[
+  {
+    "id": "asr",
+    "filename": "tdt-0.6b-v3-q8_0.gguf",
+    "bytes": 940663680,
+    "sha256": "4d69a4a6683f4f2d952bad794c1357ca6eb628027695b4699c5a9ad4cd07d757",
+    "license": "CC-BY-4.0",
+    "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/07a08a3a405d20c5434b9a1442f6e6cf571f57ad/tdt-0.6b-v3-q8_0.gguf",
+    "revision": "07a08a3a405d20c5434b9a1442f6e6cf571f57ad"
+  },
+  {
+    "id": "vad",
+    "filename": "silero-vad-f16.gguf",
+    "bytes": 1264928,
+    "sha256": "8160489282352accc0e95925c2f6bf3d76fb8f7bccdce5c7e46808cb15e8443c",
+    "license": "MIT",
+    "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/07a08a3a405d20c5434b9a1442f6e6cf571f57ad/silero-vad-f16.gguf",
+    "revision": "07a08a3a405d20c5434b9a1442f6e6cf571f57ad"
+  },
+  {
+    "id": "diarization",
+    "filename": "nemotron-3-diarization-q8_0.gguf",
+    "bytes": 108674624,
+    "sha256": "76c5bb1fb20d82706142ad32769b7ab496d2458489473a000fd7074c52ceec22",
+    "license": "OpenMDW-1.1",
+    "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/07a08a3a405d20c5434b9a1442f6e6cf571f57ad/nemotron-3-diarization-q8_0.gguf",
+    "revision": "07a08a3a405d20c5434b9a1442f6e6cf571f57ad"
+  }
+]

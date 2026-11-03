@@ -1,0 +1,13 @@
+{
+  "parakeet": "2eac2e77d9c7ef8899f7a86a46e693ac5ac1a5cd",
+  "ggml": "e705c5fed490514458bdd2eaddc43bd098fcce9b",
+  "features": [
+    "CPU",
+    "Accelerate",
+    "Metal embedded shaders"
+  ],
+  "excluded": [
+    "CED",
+    "persistent voice identification"
+  ]
+}
