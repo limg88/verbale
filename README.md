@@ -1,6 +1,6 @@
 # Verbale
 
-App macOS per registrare e trascrivere riunioni in italiano e inglese, con output in una cartella selezionabile. SwiftUI, Core Audio e Parakeet locale. Nessuna integrazione Brainy. Versione corrente: **0.2.0**.
+App macOS per registrare e trascrivere riunioni in italiano e inglese, con output in una cartella selezionabile. SwiftUI, Core Audio e Parakeet locale. Nessuna integrazione Brainy. Versione corrente: **0.3.0**.
 
 ## Avvio
 
@@ -18,6 +18,20 @@ Apri `dist/Verbale.app`. Il pacchetto locale è firmato ad-hoc; non è una relea
 Apri **Widget** dalla finestra principale, dalla barra dei menu o con **⇧⌘M**. È un pannello compatto e spostabile con avvio/arresto, timer, livelli delle due sorgenti, stato di salvataggio audio e screenshot. La puntina lo mantiene sopra le altre finestre; puoi disattivarla. La freccia riapre la finestra principale, la X nasconde solo il widget e non interrompe una registrazione. Non è un'estensione WidgetKit del Centro notifiche.
 
 Il modello riconosce automaticamente IT/EN. Il testo progressivo viene elaborato su finestre con contesto; la coda audio è durevole sul disco e non richiede un server.
+
+### Avvio automatico con Teams desktop
+
+In **Impostazioni → Chiamate Teams, in automatico**, attiva **Registra automaticamente tutte le chiamate Teams desktop**. L'opzione è disattivata di default e viene ricordata. Prima configura cartella, modelli e sorgenti ed esegui una registrazione manuale per concedere i permessi macOS. Le sorgenti e i dispositivi selezionati sono ricordati fra gli avvii.
+
+Verbale deve essere in esecuzione: questa versione non si avvia da sola al login. Con l'automazione attiva parte nella sola barra dei menu. Rileva la chiamata con due osservazioni distanti almeno 2 secondi, nasconde dashboard e widget e registra nella destinazione configurata. L'icona neutra a livelli diventa piena durante la registrazione; il menu mostra esplicitamente stato, durata, errori e arresto. **Mostra Verbale** riapre la dashboard su richiesta. La chiusura della dashboard lascia l'app attiva nella barra dei menu.
+
+L'arresto avviene dopo 20 secondi consecutivi senza il segnale di chiamata, per tollerare riconnessioni brevi. Un arresto manuale non provoca un riavvio nella stessa chiamata. Disattivare l'automazione termina solo la sessione avviata automaticamente; una sessione manuale non viene arrestata alla fine di Teams. Se una finalizzazione è in corso, il nuovo avvio attende finché il segnale della chiamata è ancora attivo. Un errore di avvio non viene ritentato in continuazione: è consultabile dal menu. Il mancato accesso al segnale viene segnalato e non viene interpretato come fine chiamata.
+
+Il rilevamento legge l'asserzione energetica locale **Microsoft Teams Call in progress**, associata al processo Teams tramite bundle ID, usando `IOPMCopyAssertionsByProcess`. Non legge conversazioni, log o contenuti Teams, non usa il microfono come indicatore e non richiede Accessibilità, Graph o credenziali Microsoft. Non dipende dallo stato muto. Il nome dell'asserzione è un dettaglio di Teams e può cambiare: il rilevamento è sperimentale e va convalidato con chiamate reali nella versione Teams installata. Non si attiva per Teams nel browser o solo perché Teams è aperto. Non vengono usate euristiche generiche sull'audio per compensare un segnale assente.
+
+**Condivisione dell'intero schermo:** l'automazione non apre finestre o widget e rimuove l'icona dal Dock. Non garantisce invisibilità: l'icona nella barra dei menu, eventuali menu aperti e gli indicatori macOS possono essere condivisi. Apple descrive `NSWindow.SharingType.none` come una costante legacy da non usare per escludere contenuti dalla cattura; non la usiamo come falsa garanzia di protezione. [Riferimento Apple](https://developer.apple.com/documentation/appkit/nswindow/sharingtype-swift.enum/none).
+
+Per diagnosticare il solo segnale, senza registrare: `verbale-cli teams-status` restituisce `active`, `inactive` o `unavailable`.
 
 **Conservazione:** per impostazione predefinita l'audio temporaneo è eliminato dopo completamento ed esportazione riusciti. Puoi esportare anche l'audio, oppure conservare la copia temporanea per rielaborazione. In caso di errore rimane recuperabile in `~/Library/Application Support/Verbale/Sessions`. L'archivio interno conserva metadati, note e trascrizione per la riapertura; puoi rimuovere questa copia dall'Archivio senza cancellare gli output esportati.
 
@@ -57,6 +71,8 @@ verbale-cli transcribe audio.wav asr.gguf vad.gguf cartella-output /percorso/lib
 `verbale-cli` si trova nella directory indicata da `swift build --scratch-path .build/swift --show-bin-path`. Accetta file audio leggibili da AVFoundation e crea la stessa struttura di output della UI. La CLI è uno strumento di sviluppo; i percorsi modello espliciti sono a carico del chiamante. La UI verifica invece i digest del catalogo.
 
 `scripts/test.sh` usa un eseguibile di controllo indipendente da XCTest, perché la toolchain Command Line Tools disponibile non include XCTest. Verifica recupero con journal troncato, esportazione, disco assente, allegati mancanti, collisioni, ricampionamento, conservazione dell'audio esportato dopo la pulizia e rimozione esplicita della spunta audio.
+
+Verifica anche conferma iniziale Teams, riconnessioni, chiamate consecutive, assenza di avvii duplicati, segnale indisponibile e identità/livello dell'asserzione. La build isolata `python3 scripts/build.py --skip-native --preview` accetta `--check-background-ui` sul proprio eseguibile: esegue controlli delle finestre e della modalità senza Dock, senza acquisire audio o avviare il monitor, e scrive l'esito in `.build/preview-profile/background-ui-checks.json`. Il flag non è attivo nel bundle distribuito.
 
 ## Stato e limiti
 

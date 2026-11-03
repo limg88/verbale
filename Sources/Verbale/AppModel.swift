@@ -1,19 +1,29 @@
 import SwiftUI
 import AppKit
+import AVFoundation
 import VerbaleCore
 
 @MainActor final class AppModel: ObservableObject {
+    static let shared = AppModel()
     @Published var meetings: [Meeting] = []
     @Published var current: Meeting?
     @Published var title = ""
-    @Published var microphone = true
-    @Published var system = true
+    @Published var microphone = UserDefaults.standard.object(forKey: "captureMicrophone") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(microphone, forKey: "captureMicrophone") }
+    }
+    @Published var system = UserDefaults.standard.object(forKey: "captureSystem") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(system, forKey: "captureSystem") }
+    }
     @Published var keepAudio = RecordingPreferences.keepAudio() {
         didSet { RecordingPreferences.setKeepAudio(keepAudio) }
     }
     @Published var keepRecovery = false
-    @Published var inputID: UInt32 = 0
-    @Published var outputID: UInt32 = 0
+    @Published var inputID = UInt32(UserDefaults.standard.integer(forKey: "captureInput")) {
+        didSet { UserDefaults.standard.set(Int(inputID), forKey: "captureInput") }
+    }
+    @Published var outputID = UInt32(UserDefaults.standard.integer(forKey: "captureOutput")) {
+        didSet { UserDefaults.standard.set(Int(outputID), forKey: "captureOutput") }
+    }
     @Published var inputs = Devices.list(input: true)
     @Published var outputs = Devices.list(input: false)
     @Published var destination: URL?
@@ -30,6 +40,14 @@ import VerbaleCore
     @Published var elapsed: Double = 0
     @Published var tab = "session"
     @Published var widgetVisible = false
+    @Published var teamsAutoEnabled = UserDefaults.standard.bool(forKey: "teamsAutoEnabled") {
+        didSet {
+            UserDefaults.standard.set(teamsAutoEnabled, forKey: "teamsAutoEnabled")
+            configureTeamsAutomation()
+        }
+    }
+    @Published var teamsStatus = "Automazione Teams disattivata"
+    @Published var quietMode = false
     @Published var widgetPinned = true {
         didSet { widgetPanel?.level = widgetPinned ? .floating : .normal }
     }
@@ -46,11 +64,20 @@ import VerbaleCore
     private var accessURL: URL?
     private var observers: [NSObjectProtocol] = []
     private var widgetPanel: NSPanel?
-    var reopenMainWindow: (() -> Void)?
+    private var mainWindow: NSWindow?
+    private let teamsMonitor = TeamsCallMonitor()
+    private var teamsTracker = TeamsCallTracker()
+    private var automaticCallID: UUID?
+    private var automaticSessionID: UUID?
+    private var automaticAttempted = false
+    private var automaticStarting = false
+    private var shuttingDown = false
+    func prepareToQuit() { shuttingDown = true; teamsMonitor.stop(); automaticCallID = nil }
     var readyToRecord: Bool { installed.isSuperset(of: ["asr", "vad"]) && destination != nil && (microphone || system) && !busy && !working && !reportBusy }
     var sessionLocked: Bool { isRecording || busy || working || reportBusy }
     var audioSavedForDisplay: Bool { isRecording ? (current?.keepAudio ?? keepAudio) : keepAudio }
     func showWidget() {
+        quietMode = false
         if widgetPanel == nil {
             let panel = WidgetPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 286), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.title = "Verbale — Widget"
@@ -67,9 +94,81 @@ import VerbaleCore
     }
     func hideWidget() { widgetPanel?.orderOut(nil); widgetVisible = false }
     func showMainWindow() {
+        quietMode = false
+        NSApp.setActivationPolicy(.regular)
+        if mainWindow == nil {
+            let window = MainWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 900), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            window.title = "Verbale"
+            window.minSize = NSSize(width: 1120, height: 760)
+            window.isReleasedWhenClosed = false
+            window.contentView = NSHostingView(rootView: DashboardView().environmentObject(self).tint(.indigo))
+            window.setFrameAutosaveName("VerbaleMainWindow")
+            window.center(); mainWindow = window
+        }
         NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeMain }) { window.makeKeyAndOrderFront(nil) }
-        else { reopenMainWindow?() }
+        mainWindow?.makeKeyAndOrderFront(nil)
+    }
+    func enterQuietMode() {
+        quietMode = true; hideWidget(); mainWindow?.orderOut(nil)
+        NSApp.setActivationPolicy(.accessory)
+    }
+    func configureTeamsAutomation() {
+        teamsMonitor.stop(); teamsTracker = TeamsCallTracker(); automaticCallID = nil; automaticAttempted = false
+        if teamsAutoEnabled {
+            teamsStatus = "In attesa di una chiamata Teams"
+            teamsMonitor.start { [weak self] signal in Task { @MainActor in self?.receiveTeamsSignal(signal) } }
+        } else {
+            teamsStatus = "Automazione Teams disattivata"
+            if let id = automaticSessionID, current?.id == id {
+                Task { if self.automaticSessionID == id { await self.stop() } }
+            }
+        }
+    }
+    private func receiveTeamsSignal(_ signal: TeamsCallSignal) {
+        guard teamsAutoEnabled && !shuttingDown else { return }
+        let event = teamsTracker.update(signal, at: Date())
+        if event == .callBegan {
+            automaticCallID = UUID(); automaticAttempted = false
+        } else if event == .callEnded {
+            automaticCallID = nil; automaticAttempted = false
+            teamsStatus = "Chiamata conclusa · in attesa della prossima"
+            if let id = automaticSessionID, current?.id == id {
+                Task { if self.automaticSessionID == id { await self.stop() } }
+            }
+            return
+        }
+        guard signal != .unavailable else {
+            teamsStatus = "Rilevamento Teams non disponibile · stato chiamata non verificato"
+            return
+        }
+        guard teamsTracker.isInCall, let callID = automaticCallID else {
+            teamsStatus = signal == .active ? "Verifica della chiamata Teams…" : "In attesa di una chiamata Teams"
+            return
+        }
+        if automaticAttempted {
+            if automaticSessionID != nil { teamsStatus = signal == .inactive ? "Verifica fine chiamata · attesa di 20 secondi" : "Registrazione automatica Teams attiva" }
+            return
+        }
+        guard signal == .active else { teamsStatus = "Verifica fine chiamata · nessun nuovo avvio"; return }
+        guard !automaticStarting else { return }
+        if isRecording { automaticAttempted = true; teamsStatus = "Chiamata rilevata · registrazione manuale già attiva"; return }
+        guard !busy && !working && !reportBusy else { teamsStatus = "Chiamata rilevata · attesa della finalizzazione in corso"; return }
+        guard readyToRecord else { teamsStatus = "Chiamata rilevata · configura cartella, modelli e sorgenti audio"; return }
+        guard !microphone || AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            teamsStatus = "Prima dell’avvio automatico, autorizza il microfono con una registrazione manuale"; return
+        }
+        // One attempt per call: errors and manual stops cannot cause a restart loop.
+        automaticAttempted = true; automaticStarting = true
+        enterQuietMode(); title = "Chiamata Teams"; current = nil
+        teamsStatus = "Avvio della registrazione Teams…"
+        Task {
+            await start(automaticCall: callID)
+            automaticStarting = false
+            if let id = automaticSessionID, current?.id == id {
+                if !teamsAutoEnabled || automaticCallID != callID { await stop() }
+                else { teamsStatus = "Registrazione automatica Teams attiva" }
+            } else { teamsStatus = "Avvio automatico non riuscito · consulta lo stato nel menu" }
+        }
     }
     func newMeeting() {
         guard !sessionLocked else { return }
@@ -133,14 +232,18 @@ import VerbaleCore
         let diar = diarization ? try await models.verified("diarization") : nil
         try await engine.load(asr: asr, vad: vad, diarization: diar)
     }
-    func start() async {
-        guard !busy && !isRecording && !reportBusy else { return }
-        guard let destination else { chooseDestination(); return }
+    func start(automaticCall: UUID? = nil) async {
+        guard !shuttingDown && !busy && !isRecording && !reportBusy && !working else { return }
+        guard let destination else { if automaticCall == nil { chooseDestination() }; return }
         let sources = AudioSource.allCases.filter { $0 == .microphone ? microphone : system }
         guard !sources.isEmpty else { error = "Seleziona almeno una sorgente audio."; return }
-        busy = true; status = "Preparazione della trascrizione…"; exportError = nil; failedProcessing = false
+        busy = true; status = "Preparazione della trascrizione…"; exportError = nil; error = nil; failedProcessing = false
+        defer { busy = false }
         do {
             try await loadEngine()
+            if let automaticCall, (!teamsAutoEnabled || automaticCallID != automaticCall) {
+                await engine.unload(); status = "Avvio automatico annullato"; return
+            }
             var meeting = Meeting(title: title, sources: sources, destination: destination, keepAudio: keepAudio)
             meeting.keepRecovery = keepRecovery
             meeting.modelDigests = Dictionary(uniqueKeysWithValues: models.catalog.filter { $0.id != "diarization" }.map { ($0.id, $0.sha256) })
@@ -158,13 +261,14 @@ import VerbaleCore
                 }
             })
             isRecording = true; elapsed = 0; status = "Registrazione in corso"
+            if automaticCall != nil { automaticSessionID = meeting.id }
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
             reloadWithoutRecovery()
         } catch {
             self.error = error.localizedDescription; status = "Preparazione non riuscita"
             if var meeting = current, meeting.state == .recording { meeting.state = .interrupted; try? store.save(meeting); current = meeting }
+            if automaticCall != nil { await engine.unload() }
         }
-        busy = false
     }
     private func tick() {
         guard isRecording, let current else { return }
@@ -227,6 +331,9 @@ import VerbaleCore
     }
     func stop() async {
         guard isRecording && !busy else { return }
+        let wasAutomatic = automaticSessionID != nil
+        if automaticSessionID != nil { teamsStatus = "Registrazione terminata · attesa della prossima chiamata" }
+        automaticSessionID = nil
         busy = true; isRecording = false; timer?.invalidate(); timer = nil; levels = [:]; status = "Finalizzazione…"
         await capture.stop()
         if var meeting = current {
@@ -236,7 +343,9 @@ import VerbaleCore
         }
         if let processing { await processing.value }
         if !failedProcessing { await processPending() }
-        finishSession(); busy = false
+        finishSession()
+        if wasAutomatic { await engine.unload() }
+        busy = false
     }
     private func finishSession() {
         guard var meeting = current else { return }

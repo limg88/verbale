@@ -5,6 +5,10 @@ import VerbaleCore
     static func main() async {
         do {
             let args = Array(CommandLine.arguments.dropFirst())
+            if args == ["teams-status"] {
+                print("Teams: \(TeamsCallProbe.sample().rawValue)")
+                return
+            }
             guard args.first == "transcribe", args.count >= 5 else {
                 print("Uso: verbale-cli transcribe <audio> <asr.gguf> <vad.gguf> <cartella-output> [libreria.dylib]")
                 return

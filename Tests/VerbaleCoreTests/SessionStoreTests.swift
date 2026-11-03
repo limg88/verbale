@@ -112,6 +112,60 @@ final class SessionStoreTests {
         XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.appendingPathComponent(saved.folderName).appendingPathComponent("audio").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: temporary.appendingPathComponent(saved.folderName).appendingPathComponent("transcript.md").path))
     }
+    func testTeamsRequiresConfirmedCallAndRejectsTransientSignals() {
+        let t = Date(timeIntervalSince1970: 0)
+        var tracker = TeamsCallTracker()
+        XCTAssertEqual(tracker.update(.active, at: t), nil)
+        XCTAssertEqual(tracker.update(.inactive, at: t.addingTimeInterval(1)), nil)
+        XCTAssertEqual(tracker.update(.active, at: t.addingTimeInterval(2)), nil)
+        XCTAssertEqual(tracker.update(.active, at: t.addingTimeInterval(3)), nil)
+        XCTAssertEqual(tracker.update(.active, at: t.addingTimeInterval(4)), .callBegan)
+        XCTAssertTrue(tracker.isInCall)
+    }
+    func testTeamsReconnectionCancelsStopAndAllowsNextCall() {
+        let t = Date(timeIntervalSince1970: 0)
+        var tracker = TeamsCallTracker()
+        _ = tracker.update(.active, at: t)
+        XCTAssertEqual(tracker.update(.active, at: t.addingTimeInterval(2)), .callBegan)
+        _ = tracker.update(.inactive, at: t.addingTimeInterval(4))
+        XCTAssertEqual(tracker.update(.inactive, at: t.addingTimeInterval(22)), nil)
+        XCTAssertEqual(tracker.update(.active, at: t.addingTimeInterval(23)), nil)
+        _ = tracker.update(.inactive, at: t.addingTimeInterval(24))
+        XCTAssertEqual(tracker.update(.inactive, at: t.addingTimeInterval(44)), .callEnded)
+        XCTAssertFalse(tracker.isInCall)
+        XCTAssertEqual(tracker.update(.inactive, at: t.addingTimeInterval(46)), nil)
+        _ = tracker.update(.active, at: t.addingTimeInterval(48))
+        XCTAssertEqual(tracker.update(.active, at: t.addingTimeInterval(50)), .callBegan)
+    }
+    func testTeamsUnknownStateCannotEndCall() {
+        let t = Date(timeIntervalSince1970: 0)
+        var tracker = TeamsCallTracker()
+        _ = tracker.update(.active, at: t)
+        _ = tracker.update(.active, at: t.addingTimeInterval(2))
+        _ = tracker.update(.inactive, at: t.addingTimeInterval(4))
+        XCTAssertEqual(tracker.update(.unavailable, at: t.addingTimeInterval(24)), nil)
+        XCTAssertTrue(tracker.isInCall)
+        XCTAssertEqual(tracker.update(.inactive, at: t.addingTimeInterval(26)), nil)
+        XCTAssertEqual(tracker.update(.inactive, at: t.addingTimeInterval(46)), .callEnded)
+    }
+    func testTeamsDoesNotEmitRepeatedStartsDuringSameCall() {
+        let t = Date(timeIntervalSince1970: 0)
+        var tracker = TeamsCallTracker()
+        _ = tracker.update(.active, at: t)
+        XCTAssertEqual(tracker.update(.active, at: t.addingTimeInterval(2)), .callBegan)
+        // After manual stop, continued Teams activity must not request another start.
+        for seconds in stride(from: 4, through: 100, by: 2) {
+            XCTAssertEqual(tracker.update(.active, at: t.addingTimeInterval(Double(seconds))), nil)
+        }
+    }
+    func testTeamsAssertionBelongsToTeamsAndMustBeEnabled() {
+        XCTAssertTrue(TeamsCallProbe.isCallAssertion(name: "Microsoft Teams Call in progress", level: 1, bundleIdentifier: "com.microsoft.teams2"))
+        XCTAssertTrue(TeamsCallProbe.isCallAssertion(name: "Microsoft Teams Call in progress", level: 255, bundleIdentifier: "com.microsoft.teams2.helper"))
+        XCTAssertFalse(TeamsCallProbe.isCallAssertion(name: "Microsoft Teams Call in progress", level: 0, bundleIdentifier: "com.microsoft.teams2"))
+        XCTAssertFalse(TeamsCallProbe.isCallAssertion(name: "Microsoft Teams Call in progress", level: 1, bundleIdentifier: "io.verbale.app"))
+        XCTAssertFalse(TeamsCallProbe.isCallAssertion(name: "Microsoft Teams Call in progress", level: 1, bundleIdentifier: "com.microsoft.teams2other"))
+        XCTAssertFalse(TeamsCallProbe.isCallAssertion(name: "Playing audio", level: 1, bundleIdentifier: "com.microsoft.teams2"))
+    }
 }
 
 @main enum Checks {
@@ -126,7 +180,12 @@ final class SessionStoreTests {
             ("existing folder collision", tests.testExistingUnownedFolderIsNeverOverwritten),
             ("48k stereo resampling", tests.testResampling48kStereoHasExpectedDuration),
             ("saved audio survives cleanup", tests.testSavedAudioSurvivesTemporaryCleanup),
-            ("explicit audio opt-out", tests.testAudioCanBeExplicitlyExcluded)
+            ("explicit audio opt-out", tests.testAudioCanBeExplicitlyExcluded),
+            ("Teams start debounce", tests.testTeamsRequiresConfirmedCallAndRejectsTransientSignals),
+            ("Teams reconnect and next call", tests.testTeamsReconnectionCancelsStopAndAllowsNextCall),
+            ("Teams unavailable signal", tests.testTeamsUnknownStateCannotEndCall),
+            ("Teams no duplicate starts", tests.testTeamsDoesNotEmitRepeatedStartsDuringSameCall),
+            ("Teams assertion identity", tests.testTeamsAssertionBelongsToTeamsAndMustBeEnabled)
         ]
         for (name, body) in cases {
             let before = failures

@@ -4,7 +4,6 @@ import VerbaleCore
 
 struct DashboardView: View {
     @EnvironmentObject var model: AppModel
-    @Environment(\.openWindow) private var openWindow
     private var pageTitle: String {
         switch model.tab { case "archive": return "Le tue conversazioni"; case "models": return "Intelligenza, sul tuo Mac"; case "settings": return "Il tuo modo di lavorare"; default: return "Il tuo spazio di ascolto" }
     }
@@ -27,8 +26,7 @@ struct DashboardView: View {
                 }
             }.background(LinearGradient(colors: [Palette.accent.opacity(0.025), Color(nsColor: .windowBackgroundColor)], startPoint: .topLeading, endPoint: .bottomTrailing))
         }
-        .onAppear { model.reopenMainWindow = { openWindow(id: "main") } }
-        .alert("Verbale", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("OK") { model.error = nil } } message: { Text(model.error ?? "") }
+        .alert("Verbale", isPresented: Binding(get: { model.error != nil && !model.quietMode }, set: { if !$0 { model.error = nil } })) { Button("OK") { model.error = nil } } message: { Text(model.error ?? "") }
     }
 
     private var sidebar: some View {
@@ -224,6 +222,18 @@ struct DashboardView: View {
     }
 
     @ViewBuilder private var settings: some View {
+        Surface {
+            VStack(alignment: .leading, spacing: 16) {
+                Label("Chiamate Teams, in automatico", systemImage: "app.connected.to.app.below.fill").font(.system(size: 16, weight: .semibold))
+                Toggle("Registra automaticamente tutte le chiamate Teams desktop", isOn: $model.teamsAutoEnabled).toggleStyle(.checkbox)
+                Text(model.teamsStatus).font(.callout).foregroundStyle(Palette.accent)
+                Text("Verbale deve essere aperto. Quando rileva una chiamata, chiude finestra e widget e resta nella barra dei menu, senza icona nel Dock. Termina dopo 20 secondi senza chiamata; se la interrompi tu, non riparte nella stessa chiamata. Disattivare questa opzione termina la registrazione automatica in corso.").font(.caption).foregroundStyle(.secondary)
+                Text("Prepara modelli, cartella e permessi con una prima registrazione manuale. Le sorgenti e i dispositivi selezionati vengono ricordati. Il rilevamento usa un segnale locale di Teams, che può cambiare tra versioni; non richiede Accessibilità.").font(.caption).foregroundStyle(.secondary)
+                Divider()
+                Text("Condivisione schermo: nessuna finestra viene aperta automaticamente. L’icona nella barra dei menu, i menu aperti e gli indicatori macOS possono comparire quando condividi tutto lo schermo; non è garantita l’esclusione dalla cattura.").font(.caption).foregroundStyle(.secondary)
+                Button("Riduci alla sola barra dei menu") { model.enterQuietMode() }
+            }
+        }
         Surface {
             VStack(alignment: .leading, spacing: 18) {
                 Label("Audio e ascolto", systemImage: "headphones").font(.system(size: 16, weight: .semibold))
