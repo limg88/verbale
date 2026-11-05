@@ -111,6 +111,7 @@ public enum ReportService {
             let sourceLimit = limit - max((extractionPrefix + extractionSuffix).utf8.count, (finalPrefix + finalSuffix).utf8.count)
             guard sourceLimit >= 512 else { throw ReportServiceError(kind: .tooLarge, status: 0, retryAfter: nil) }
             let batches = inputBatches(meeting: meeting, limit: sourceLimit)
+            guard !batches.isEmpty else { throw VerbaleError.message("La trascrizione è vuota") }
             func hash(_ value: String) -> String { SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined() }
             let identity = hash(ReportPrompt.version + "\nlocal-gateway-v1\n" + endpoint + "\n" + model + "\n" + system + "\n" + batches.joined(separator: "\u{0}"))
             let checkpoint = checkpointDirectory?.appendingPathComponent(identity + ".json")

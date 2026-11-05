@@ -166,10 +166,53 @@ final class SessionStoreTests {
         XCTAssertFalse(TeamsCallProbe.isCallAssertion(name: "Microsoft Teams Call in progress", level: 1, bundleIdentifier: "com.microsoft.teams2other"))
         XCTAssertFalse(TeamsCallProbe.isCallAssertion(name: "Playing audio", level: 1, bundleIdentifier: "com.microsoft.teams2"))
     }
+    func testReportRequestIncludesNotesAndResolvesSources() async throws {
+        var meeting = Meeting(title: "Report integrato", sources: [.system], destination: temporary, keepAudio: false)
+        meeting.segments = [Segment(source: .system, start: 1, end: 2, text: "Proposta da valutare")]
+        meeting.notes = "APPUNTO_PERSONALE_DI_PROVA"
+        try meeting.addMarker(.action, at: 1)
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [ReportProtocol.self]
+        let session = URLSession(configuration: config); defer { session.invalidateAndCancel() }
+        let report = try await ReportService.generate(meeting: meeting, endpoint: LocalGateway.defaultEndpoint, model: "test", key: "test-gateway-token-for-verbale", session: session)
+        XCTAssertTrue(report.contains("transcript.md#\(meeting.segments[0].anchor)"))
+        XCTAssertTrue(report.contains("notes.md")); XCTAssertFalse(report.contains("[["))
+    }
+}
+
+/// No network is contacted. Fail unless the actual generation request carries the new source types.
+private final class ReportProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        if request.url?.path == "/health" || request.url?.path == "/v1/models" {
+            let body = request.url?.path == "/health" ? "{\"status\":\"ok\"}" : "{\"data\":[{\"id\":\"test\"}]}"
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(body.utf8)); client?.urlProtocolDidFinishLoading(self); return
+        }
+        var body = request.httpBody
+        if body == nil, let stream = request.httpBodyStream {
+            stream.open(); defer { stream.close() }
+            var bytes = [UInt8](repeating: 0, count: 4096), data = Data()
+            while stream.hasBytesAvailable {
+                let count = stream.read(&bytes, maxLength: bytes.count)
+                if count <= 0 { break }; data.append(contentsOf: bytes.prefix(count))
+            }
+            body = data
+        }
+        guard let body, let text = String(data: body, encoding: .utf8),
+              text.contains("APPUNTO_PERSONALE_DI_PROVA"), text.contains("[[S1]]"), text.contains("[[M1]]"),
+              request.url?.path == "/v1/chat/completions" else {
+            client?.urlProtocol(self, didFailWithError: VerbaleError.message("Fonti mancanti nella richiesta report")); return
+        }
+        let data = try! JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": "Proposta [[S1]]. Appunto personale [[N]]. Da esaminare [[M1]]."], "finish_reason": "stop"]]])
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data); client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }
 
 @main enum Checks {
-    static func main() {
+    static func main() async {
         let tests = SessionStoreTests()
         let cases: [(String, () throws -> Void)] = [
             ("recovery and torn journal", tests.testRecoveryReplaysOnlyDurableChunksAndIsIdempotent),
@@ -193,6 +236,13 @@ final class SessionStoreTests {
             catch { failures += 1; print("FAIL \(name): \(error)") }
             if before == failures { print("PASS \(name)") }
         }
+        do {
+            try tests.setUpWithError(); defer { try? tests.tearDownWithError() }
+            try await tests.testReportRequestIncludesNotesAndResolvesSources()
+            print("PASS report generation with notes and source links (mock transport)")
+        } catch { failures += 1; print("FAIL report generation: \(error)") }
+        failures += await ReportChecks.run()
+        failures += await GatewayChecks.run()
         print("\(cases.count) checks, \(failures) failures")
         if failures > 0 { exit(1) }
     }
