@@ -3,6 +3,7 @@ import Foundation
 /// One store per process. All mutations are serialized by the UI/processor coordinator.
 public final class SessionStore {
     public let root: URL
+    private let artifactVerification = ArtifactVerification()
     public init(root: URL? = nil) throws {
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Verbale/Sessions", isDirectory: true)
         try FileManager.default.createDirectory(at: self.root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -65,14 +66,34 @@ public final class SessionStore {
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         try meeting.id.uuidString.write(to: owner, atomically: true, encoding: .utf8)
         let segments = meeting.segments.sorted { $0.start == $1.start ? $0.source.rawValue < $1.source.rawValue : $0.start < $1.start }
-        let body = segments.map { "[\(timecode($0.start))] **\(meeting.speakerName(for: $0))**: \($0.text)" }.joined(separator: "\n\n")
+        let body = segments.map { "<a id=\"\($0.anchor)\"></a>\n\n[\(timecode($0.start))] **\(meeting.speakerName(for: $0))**: \($0.text)" }.joined(separator: "\n\n")
+        let markers = meeting.markers.sorted { $0.timestamp < $1.timestamp }.map {
+            "<a id=\"\($0.anchor)\"></a>\n\n- [\(timecode($0.timestamp))] \($0.kind.label)"
+        }.joined(separator: "\n\n")
         let shots = meeting.screenshots.map { "- [\(timecode($0.timestamp))](\($0.filename))" }.joined(separator: "\n")
-        try "# \(meeting.title)\n\n\(body)\n\n\(shots.isEmpty ? "" : "## Screenshot\n\n" + shots)\n".write(to: target.appendingPathComponent("transcript.md"), atomically: true, encoding: .utf8)
+        try "# \(meeting.title)\n\n\(body)\n\n\(markers.isEmpty ? "" : "## Momenti segnati\n\n" + markers + "\n\n")\(shots.isEmpty ? "" : "## Screenshot\n\n" + shots)\n".write(to: target.appendingPathComponent("transcript.md"), atomically: true, encoding: .utf8)
         try JSONCoding.encoder().encode(segments).write(to: target.appendingPathComponent("transcript.json"), options: .atomic)
         try meeting.notes.write(to: target.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
-        if let report = meeting.report { try report.write(to: target.appendingPathComponent("report.md"), atomically: true, encoding: .utf8) }
+        try JSONCoding.encoder().encode(meeting.markers).write(to: target.appendingPathComponent("markers.json"), options: .atomic)
+        try JSONCoding.encoder().encode(meeting.corrections).write(to: target.appendingPathComponent("corrections.json"), options: .atomic)
+        if let duplicates = meeting.echoDuplicates, !duplicates.isEmpty {
+            try JSONCoding.encoder().encode(duplicates).write(to: target.appendingPathComponent("echo-duplicates.json"), options: .atomic)
+        }
+        if let edits = meeting.transcriptBoundaryEdits, !edits.isEmpty {
+            try JSONCoding.encoder().encode(edits).write(to:target.appendingPathComponent("transcript-boundaries.json"),options:.atomic)
+        }
+        let refinement = workspace(meeting.id).appendingPathComponent("transcription-refinement.json")
+        if FileManager.default.fileExists(atPath:refinement.path) {
+            try Data(contentsOf:refinement).write(to:target.appendingPathComponent("transcription-refinement.json"),options:.atomic)
+        }
+        if let report = meeting.reportDocument { try report.write(to: target.appendingPathComponent("report.md"), atomically: true, encoding: .utf8) }
         for shot in meeting.screenshots { try copyArtifact(shot.filename, meeting: meeting, target: target) }
-        if meeting.keepAudio { for chunk in meeting.chunks { try copyArtifact(chunk.filename, meeting: meeting, target: target) } }
+        if meeting.keepAudio {
+            for chunk in meeting.chunks {
+                try copyArtifact(chunk.filename, meeting: meeting, target: target)
+                if let cleaned = chunk.cleanedFilename { try copyArtifact(cleaned, meeting: meeting, target: target) }
+            }
+        }
         meeting.exported = true
         // Commit marker is written last; earlier failures never report successful export.
         try JSONCoding.encoder().encode(meeting).write(to: target.appendingPathComponent("meeting.json"), options: .atomic)
@@ -88,9 +109,10 @@ public final class SessionStore {
         let output = target.appendingPathComponent(filename)
         try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: output.path) {
+            if source.standardizedFileURL == output.standardizedFileURL { return }
             // A retry must not accept a partial copy as a successful export.
             if FileManager.default.fileExists(atPath: source.path) {
-                guard try ModelManager.digest(source) == ModelManager.digest(output) else { throw VerbaleError.message("Allegato preesistente diverso: \(filename). Scegli una nuova cartella.") }
+                try artifactVerification.verify(source,output)
             }
             return
         }
@@ -104,6 +126,19 @@ public final class SessionStore {
         guard meeting.exported, meeting.state == .complete else { return }
         let folder = workspace(meeting.id).appendingPathComponent("audio")
         if FileManager.default.fileExists(atPath: folder.path) { try FileManager.default.removeItem(at: folder) }
+    }
+    /// Reversible archive removal. Exported files are deliberately outside this operation.
+    @discardableResult public func trashWorkspace(_ id: UUID, testingTrash: URL? = nil) throws -> URL {
+        let folder = workspace(id)
+        guard FileManager.default.fileExists(atPath:folder.path) else { throw VerbaleError.message("La riunione non è più presente nell’archivio.") }
+        if let testingTrash {
+            try FileManager.default.createDirectory(at:testingTrash,withIntermediateDirectories:true)
+            let target = testingTrash.appendingPathComponent(id.uuidString+"-"+UUID().uuidString)
+            try FileManager.default.moveItem(at:folder,to:target); return target
+        }
+        var target: NSURL?
+        try FileManager.default.trashItem(at:folder,resultingItemURL:&target)
+        return target as URL? ?? folder
     }
     public func deleteWorkspace(_ id: UUID) throws { try FileManager.default.removeItem(at: workspace(id)) }
 }

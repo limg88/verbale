@@ -18,11 +18,11 @@ struct RecordingWidget: View {
             }.buttonStyle(.plain)
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(model.current?.title ?? "Pronto quando vuoi").font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                    Text((model.recording ?? model.current)?.title ?? "Pronto quando vuoi").font(.system(size: 13, weight: .semibold)).lineLimit(1)
                     StatePill(text: model.isRecording ? "In registrazione" : model.busy ? "Preparazione / finalizzazione" : model.working ? "Trascrizione" : "Sul tuo Mac", color: model.isRecording ? .red : Palette.mint)
                 }
                 Spacer()
-                Text(timecode(model.isRecording ? model.elapsed : (model.current?.duration ?? 0))).font(.system(size: 25, weight: .medium, design: .monospaced)).monospacedDigit()
+                Text(timecode(model.isRecording || model.activeRecording != nil ? model.elapsed : (model.current?.duration ?? 0))).font(.system(size: 25, weight: .medium, design: .monospaced)).monospacedDigit()
             }
             HStack(spacing: 14) {
                 widgetMeter("mic.fill", .microphone, enabled: model.microphone)
@@ -32,6 +32,13 @@ struct RecordingWidget: View {
                 Toggle("Salva audio", isOn: $model.keepAudio).toggleStyle(.checkbox).disabled(model.sessionLocked).font(.system(size: 12))
                 Spacer()
                 if model.busy || model.working { ProgressView().controlSize(.small) }
+                Menu {
+                    ForEach(MarkerKind.allCases) { kind in
+                        Button { model.addMarker(kind) } label: { Label(kind.label, systemImage: kind.icon) }
+                    }
+                } label: { Label("\((model.recording ?? model.current)?.markers.count ?? 0)", systemImage: "flag") }
+                    .menuStyle(.borderlessButton).fixedSize().disabled(!model.isRecording || model.busy)
+                    .help("Segna momento · \((model.recording ?? model.current)?.markers.count ?? 0) marcatori")
                 Button { Task { await model.screenshot() } } label: { Image(systemName: "camera") }.disabled(!model.isRecording).help("Screenshot").accessibilityLabel("Screenshot")
             }
             Button {
@@ -53,7 +60,7 @@ struct RecordingWidget: View {
             .tint(Palette.accent)
     }
     private func widgetMeter(_ icon: String, _ source: AudioSource, enabled: Bool) -> some View {
-        HStack(spacing: 7) { Image(systemName: icon).font(.system(size: 11)).foregroundStyle(.secondary); AudioMeter(level: enabled ? (model.levels[source] ?? 0) : 0) }
+        HStack(spacing: 7) { Image(systemName: icon).font(.system(size: 11)).foregroundStyle(.secondary); LiveAudioLevel(state:model.audioLevels,source:source,enabled:enabled,compact:true) }
             .accessibilityElement(children: .combine).accessibilityLabel(source.label)
     }
 }

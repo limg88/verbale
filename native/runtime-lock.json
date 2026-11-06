@@ -1,13 +1,14 @@
 {
   "parakeet": "2eac2e77d9c7ef8899f7a86a46e693ac5ac1a5cd",
   "ggml": "e705c5fed490514458bdd2eaddc43bd098fcce9b",
+  "voice_detect": "bca46bcbc2fe68169c2d7c414e9b290a7cb89911",
   "features": [
     "CPU",
     "Accelerate",
-    "Metal embedded shaders"
+    "Metal embedded shaders",
+    "local speaker embeddings"
   ],
   "excluded": [
-    "CED",
-    "persistent voice identification"
+    "CED"
   ]
 }

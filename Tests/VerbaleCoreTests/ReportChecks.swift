@@ -93,8 +93,19 @@ enum ReportChecks {
             catch { failures += 1; print("FAIL report \(name): \(error)") }
         }
         func generate(_ input: Meeting, directory: URL? = nil, policy: ReportPolicy = ReportPolicy(), timing: ReportTiming = ReportTiming(sleep: { _ in }), metrics: ReportBox<[ReportMetric]>? = nil, progress: ReportBox<[String]>? = nil) async throws -> String {
-            try await ReportService.generate(meeting: input, endpoint: LocalGateway.defaultEndpoint, model: "test", key: key, session: session,
+            try await ReportService.generateExtended(meeting: input, endpoint: LocalGateway.defaultEndpoint, model: "test", key: key, session: session,
                 checkpointDirectory: directory, timing: timing, policy: policy, diagnostics: { m in metrics?.update { $0.append(m) } }, progress: { p in progress?.update { $0.append(p) } })
+        }
+        await check("nearby citations compact into ranges without merging distant or unknown evidence") {
+            var sample = meeting
+            sample.segments = (0..<4).map { Segment(source:.system,start:Double($0*3),end:Double($0*3+2),text:"Fonte \($0)") }
+            let text = ReportService.resolveReferences("Fatto [[S1]] [[S2]] [[S3]]. Altro [[S4]]. Nota [[N]].",meeting:sample)
+            try require(text.contains("00:00:00–00:00:08") && text.contains(sample.segments[0].anchor) && text.contains(sample.segments[3].anchor),"range links to first fragment and separate sources stay separate")
+            try require(!text.contains(sample.segments[1].anchor) && !text.contains(sample.segments[2].anchor),"nearby citation clutter is reduced")
+            sample.segments[1].start = 180;sample.segments[1].end = 182
+            sample.segments[2].start = 360;sample.segments[2].end = 362
+            let distant = ReportService.resolveReferences("Fonti [[S1]] [[S3]] [[S4]] e [[S999]].",meeting:sample)
+            try require(distant.contains(sample.segments[1].anchor) && distant.contains(sample.segments[2].anchor) && distant.contains("fonte non verificata"),"distant evidence and invalid references are not hidden inside a range")
         }
         await check("short meeting, final schema, headroom and metadata privacy") {
             let metrics = ReportBox<[ReportMetric]>([]), progress = ReportBox<[String]>([])
@@ -199,6 +210,119 @@ enum ReportChecks {
         }
         var long = meeting
         long.segments = (1...8).map { Segment(source: .system, start: Double($0), end: Double($0 + 1), text: "Task\($0). " + String(repeating: "x", count: 12300)) }
+        await check("oversized evidence composes bounded PM sections and resumes without losing activities") {
+            defer { ReportMock.inputLimit = 14000 }
+            for (capacity,sourceCount) in [(14000,8),(6000,4)] {
+            ReportMock.inputLimit = capacity
+            var sample = long; sample.segments = Array(long.segments.prefix(sourceCount))
+            let directory = root.appendingPathComponent("sectioned-report-\(capacity)")
+            var failed = false,extractions = 0,sectionResponses = 0,bounded = true
+            var delivered = Set<String>(),expected = Set<String>()
+            let kinds = ["action","fact","decision","risk","opportunity","question","note","conflict"]
+            ReportMock.handler = { request in
+                let input = user(request)
+                bounded = bounded && input.utf8.count <= ReportMock.inputLimit
+                if input.hasPrefix("FONTI DELLA RIUNIONE") {
+                    extractions += 1
+                    let ids = (1...8).filter { input.contains("[[S\($0)]]") }
+                    var facts:[[String:Any]] = []
+                    for id in ids { for index in 0..<32 {
+                        let marker = "TASK_\(id)_\(index)_END"
+                        expected.insert(marker)
+                        facts.append(["kind":kinds[index % kinds.count],"text":marker+": Anna consegna il piano venerdì; dipendenza dal collaudo; proposta ancora non approvata. "+String(repeating:"Dettaglio necessario. ",count:3),"refs":["S\(id)"]])
+                    } }
+                    let raw = String(decoding:try! JSONSerialization.data(withJSONObject:["facts":facts]),as:UTF8.self)
+                    return (200,[:],reply(extractions % 2 == 0 ? "```json\n"+raw+"\n```":raw))
+                }
+                let overview = input.hasPrefix("SEZIONE DEL RAPPORTO: Sintesi")
+                if input.hasPrefix("SEZIONE DEL RAPPORTO:"),!overview {
+                    sectionResponses += 1
+                    if sectionResponses == 2 && !failed {
+                        failed = true
+                        return (429,[:],#"{"error":{"code":"backend_daily_quota"}}"#)
+                    }
+                }
+                let json = String(input.drop { $0 != "{" })
+                guard let object = try? JSONSerialization.jsonObject(with:Data(json.utf8)) as? [String:Any],let facts = object["facts"] as? [[String:Any]] else { return (400,[:],"{}") }
+                var lines:[String] = []
+                for fact in facts {
+                    let text = fact["text"] as! String
+                    if !overview { delivered.insert(String(text.prefix { $0 != ":" })) }
+                    lines.append(text+" "+(fact["refs"] as! [String]).map { "[[\($0)]]" }.joined(separator:" "))
+                }
+                let title = String(input.components(separatedBy:.newlines).first?.dropFirst("SEZIONE DEL RAPPORTO: ".count) ?? ""[...])
+                return (200,[:],reply("## "+title+"\n\n"+lines.joined(separator:"\n")))
+            }
+            do { _ = try await generate(sample,directory:directory); throw ReportCheckError.failed("quota not reached in sections") }
+            catch let error as ReportServiceError { try require(error.kind == .backendQuota && failed,"section interruption preserves earlier outputs") }
+            let extracted = extractions
+            let report = try await generate(sample,directory:directory)
+            try require(extractions == extracted && bounded,"sections resume without repeating extraction and respect the input budget")
+            try require(expected.count == sourceCount*32 && delivered == expected && expected.allSatisfy { report.contains($0) },"all distinct facts and activities survive beyond the single-request capacity")
+            try require(report.components(separatedBy:"## Attività e responsabilità").count == 2 && report.contains("## Rischi e problemi aperti") && report.contains("## Sintesi per il project manager"),"single assembled PM report with section headings")
+            try require(report.contains("transcript.md#") && !report.contains("[[S"),"section citations become valid links")
+            }
+        }
+        await check("a real-sized twelve-part job fits even when the gateway omits usage") {
+            var sample = meeting
+            sample.segments = (1...12).map { Segment(source:.system,start:Double($0),end:Double($0+1),text:"Task\($0). "+String(repeating:"x",count:12300)) }
+            var count = 0
+            ReportMock.handler = { request in
+                count += 1
+                let input = user(request),budget = ReportMock.payload(request)["max_tokens"] as! Int
+                if input.hasPrefix("FONTI DELLA RIUNIONE"),budget < 8000 { return (422,[:],#"{"error":{"code":"output_limit_exceeded"}}"#) }
+                let content = input.hasPrefix("FONTI DELLA RIUNIONE") ? capsule(input):"Report completo [[S1]]"
+                let body:[String:Any] = ["choices":[["message":["content":content],"finish_reason":"stop"]]]
+                return (200,[:],String(decoding:try! JSONSerialization.data(withJSONObject:body),as:UTF8.self))
+            }
+            var legacy = ReportPolicy(); legacy.maxRequestedTokens = 192000
+            do { _ = try await generate(sample,policy:legacy); throw ReportCheckError.failed("legacy work cap was not reproduced") }
+            catch let error as ReportServiceError { try require(error.kind == .workLimit && error.context?.phase == "extraction","old allowance fails during extraction despite valid complete responses") }
+            count = 0
+            let report = try await generate(sample)
+            try require(count == 25 && report.contains("Report completo"),"twelve extraction retries and final fit the bounded current allowance")
+        }
+        await check("backend failure exposes safe phase HTTP code and request ID") {
+            let id = "12345678-1234-1234-1234-123456789abc"
+            ReportMock.handler = { _ in (503,["X-Request-Id":id],#"{"error":{"code":"backend_error","message":"SECRET_RAW_BACKEND_TEXT"}}"#) }
+            do { _ = try await generate(meeting); throw ReportCheckError.failed("backend failure hidden") }
+            catch let error as ReportServiceError {
+                try require(error.status == 503 && error.context?.phase == "final" && error.context?.errorCode == "backend_error" && error.context?.requestID == id,"typed diagnosis reaches the caller")
+                try require(error.localizedDescription.contains(id) && error.localizedDescription.contains("HTTP 503") && !error.localizedDescription.contains("SECRET"),"actionable safe error details")
+            }
+        }
+        await check("extraction budgets learn from usage instead of repeating the same truncation") {
+            var budgets:[Int] = []
+            ReportMock.handler = { request in
+                let input = user(request),payload = ReportMock.payload(request)
+                if !input.hasPrefix("FONTI DELLA RIUNIONE") { return (200,[:],success) }
+                let budget = payload["max_tokens"] as! Int; budgets.append(budget)
+                if budget < 8000 { return (422,[:],#"{"error":{"code":"output_limit_exceeded"}}"#) }
+                var body = try! JSONSerialization.jsonObject(with:Data(reply(capsule(input)).utf8)) as! [String:Any]
+                body["usage"] = ["prompt_tokens":10000,"completion_tokens":8100,"total_tokens":18100]
+                return (200,[:],String(decoding:try! JSONSerialization.data(withJSONObject:body),as:UTF8.self))
+            }
+            _ = try await generate(long)
+            try require(budgets.count == 9 && budgets.prefix(2) == [7168,16000] && budgets.dropFirst(2).allSatisfy { $0 == 10240 },"first expansion informs the following similarly sized blocks")
+        }
+        await check("personal-note provenance overrides ambiguous model categories") {
+            var sample = long; sample.notes = "Nota personale sintetica, non una decisione."
+            var records:[[String:Any]] = []
+            ReportMock.handler = { request in
+                let input = user(request)
+                if input.hasPrefix("FONTI DELLA RIUNIONE") {
+                    var facts:[[String:Any]] = []
+                    if input.contains("[[S1]]") { facts.append(["kind":"note","text":"Osservazione pronunciata nella call","refs":["S1"]]) }
+                    if input.contains("[[N]]") { facts.append(["kind":"decision","text":"Ipotesi personale non concordata","refs":["N"]]) }
+                    return (200,[:],reply(String(decoding:try! JSONSerialization.data(withJSONObject:["facts":facts]),as:UTF8.self)))
+                }
+                if let object = try? JSONSerialization.jsonObject(with:Data(String(input.drop { $0 != "{" }).utf8)) as? [String:Any] { records = object["facts"] as? [[String:Any]] ?? [] }
+                return (200,[:],success)
+            }
+            _ = try await generate(sample)
+            try require(records.contains { $0["kind"] as? String == "fact" && $0["refs"] as? [String] == ["S1"] },"spoken observation is not classified as personal note")
+            try require(records.contains { $0["kind"] as? String == "note" && $0["refs"] as? [String] == ["N"] },"personal hypothesis cannot become an agreed decision")
+        }
         await check("long meeting, local multi-level consolidation and essential evidence") {
             let metrics = ReportBox<[ReportMetric]>([]), progress = ReportBox<[String]>([])
             var extractions = 0, finals = 0, finalUser = ""
@@ -310,13 +434,13 @@ enum ReportChecks {
             _ = try await generate(long, directory: directory)
             try require(extracted == 7, "cancelled work resumes after saved first extraction")
         }
-        await check("oversized distinct evidence stops without lossy compaction") {
+        await check("a single oversized record stops without silently cutting its content") {
             let directory = root.appendingPathComponent("capacity")
             var requests = 0
             ReportMock.handler = { request in
                 requests += 1
                 let ids = (1...8).filter { user(request).contains("[[S\($0)]]") }
-                let facts = ids.map { ["kind": "fact", "text": "Distinct\($0) " + String(repeating: "e", count: 3000), "refs": ["S\($0)"]] as [String: Any] }
+                let facts = ids.map { ["kind": "fact", "text": "Distinct\($0) " + String(repeating: "e", count: 30000), "refs": ["S\($0)"]] as [String: Any] }
                 let content = String(decoding: try! JSONSerialization.data(withJSONObject: ["facts": facts]), as: UTF8.self)
                 return (200, [:], reply(content))
             }
@@ -368,7 +492,7 @@ extension ReportChecks {
                 let body = String(decoding: try! JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": content], "finish_reason": "stop"]]]), as: UTF8.self)
                 return (200, [:], body)
             }
-            _ = try await ReportService.generate(meeting: meeting, endpoint: LocalGateway.defaultEndpoint, model: "test", key: "test-gateway-token-for-report", session: session)
+            _ = try await ReportService.generateExtended(meeting: meeting, endpoint: LocalGateway.defaultEndpoint, model: "test", key: "test-gateway-token-for-report", session: session)
             let repeated = attempts.values.reduce(0) { $0 + max(0, $1 - 1) }
             let cumulative = budgets.reduce(0, +)
             // Declared latency model: 2 seconds per request + budget / 1000 seconds.

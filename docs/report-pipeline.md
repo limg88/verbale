@@ -1,3 +1,15 @@
+# Aggiornamento 0.15.0 — 6 novembre 2026
+
+Il percorso predefinito è ora `ProjectReport` (v6-operational); `ReportService.generateExtended` conserva il percorso v5 descritto sotto, selezionabile nell’interfaccia. Le note storiche seguenti documentano lo stato al momento delle rispettive verifiche.
+
+Il modello estrae record tipizzati con campi facoltativi per le attività. Tutti i record validati sono impaginati localmente; una sola chiamata produce fino a sei punti esecutivi per meeting con più blocchi. Per la sola sintesi, se i record superano l’input disponibile viene usata una selezione bilanciata di record interi: le sezioni dettagliate continuano a contenere tutti i record estratti. Non si garantisce l’esaustività semantica dell’estrazione automatica.
+
+Il gateway espone additivamente `report_input_limit_bytes` (48000 per CLI Claude, limite generico invariato) e `report_low_effort`. Il client invia `reasoning_effort: low` soltanto quando dichiarato; il gateway lo traduce nel flag CLI per la singola richiesta, senza cambiare le altre app o il modello. I token di ragionamento sono metadati numerici opzionali del provider: non vengono ricostruiti dalla lunghezza del testo né salvati contenuti del ragionamento.
+
+Richieste sequenziali con limiti globali esistenti; blocchi falliti per troncamento/413/timeout vengono divisi senza eliminare fonti e senza ripetere il blocco grande alla ripresa. Checkpoint distinti per prompt, fonti, endpoint, modello e profilo di ragionamento. I fallimenti non sovrascrivono il report esistente.
+
+---
+
 # Pipeline report: diagnosi e verifica del 5 novembre 2026
 
 ## Stato di partenza e limiti delle evidenze
@@ -83,3 +95,13 @@ Il benchmark si trova in ReportChecks.benchmark. Per il confronto è stato esegu
 Dodici gruppi dedicati ai report: breve senza retry, HTTP e finish_reason, retry temporanei/permanenti, massimi e scadenze, deadline e cancellazione in volo, otto estrazioni e più livelli di consolidamento locale, conservazione delle informazioni essenziali, ripresa dopo quota, finale troncato e cancellazione, invalidazione per input cambiato, permessi checkpoint, Unicode e input_limit_bytes=6000, capacità insufficiente e riferimenti non validi. Le fixture dei report e del gateway preesistenti sono aggiornate al nuovo numero di tentativi e al finish_reason completo.
 
 Il gateway finto verifica il trasporto delle informazioni attraverso la pipeline; non prova che un LLM reale estragga o riscriva ogni dettaglio correttamente. Con nuova autorizzazione esplicita restano da misurare su claude/haiku: latenza end-to-end e per fase, troncamenti, usage effettivo, correttezza del JSON senza schema nativo, omissioni/parafrasi/duplicazioni semantiche, completezza e accuratezza del rapporto rispetto alle fonti. Nessuna inferenza reale è stata effettuata durante questo lavoro.
+
+## Composizione per sezioni — 0.14.2
+
+Il limite del rapporto unico descritto sopra è ora superato per l’insieme dei record: quando il JSON consolidato non entra nel budget finale, si suddivide per categorie PM e poi per dimensione effettiva della richiesta. Ogni record distinto appartiene a una sezione dettagliata. I titoli sono assemblati localmente una sola volta; le tabelle delle parti sono Markdown autonomo. Il modello riceve il contratto di evidenza e l’istruzione di produrre soltanto il corpo della sezione. Le citazioni sono risolte dopo l’assemblaggio dell’intero report.
+
+La sintesi esecutiva usa una selezione limitata di record interi, a rotazione fra decisioni, rischi, azioni, conflitti, domande, opportunità, fatti e note. Questa selezione riguarda soltanto la sintesi, non elimina record dalle sezioni dettagliate; l’istruzione vieta deduzioni sullo stato globale o sull’assenza di temi.
+
+Ogni parte finale è checkpointata. Gli eventi `final_overview` e `final_section` misurano le richieste per questa modalità; i limiti di lavoro, durata e tentativi continuano ad applicarsi. Resta un errore esplicito se un singolo record è più grande del limite di input: non viene troncato. Nessuna nuova inferenza di compattazione è introdotta.
+
+Verifica aggiuntiva: 128 e 256 record con gateway finto, input limitato a 6000/14000 byte, quote a metà delle sezioni, ripresa senza ripetere estrazioni o parti completate, tutti i record presenti nell’output della fixture. Questo prova l’instradamento e la persistenza, non la qualità di estrazione di un modello reale.

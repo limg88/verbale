@@ -9,10 +9,11 @@ let package = Package(
                .executable(name: "verbale-checks", targets: ["VerbaleChecks"])],
     targets: [
         .target(name: "CParakeet", publicHeadersPath: "include"),
-        .target(name: "VerbaleCore", dependencies: ["CParakeet"], resources: [.copy("Resources")]),
+        .target(name: "CEcho", publicHeadersPath: "include"),
+        .target(name: "VerbaleCore", dependencies: ["CParakeet", "CEcho"], resources: [.copy("Resources")]),
         .executableTarget(name: "Verbale", dependencies: ["VerbaleCore"]),
         .executableTarget(name: "VerbaleCLI", dependencies: ["VerbaleCore"]),
-        .executableTarget(name: "VerbaleChecks", dependencies: ["VerbaleCore"], path: "Tests/VerbaleCoreTests")
+        .executableTarget(name: "VerbaleChecks", dependencies: ["VerbaleCore"], path: "Tests/VerbaleCoreTests", exclude: ["Fixtures"])
     ],
     swiftLanguageVersions: [.v5]
 )

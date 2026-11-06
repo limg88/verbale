@@ -57,21 +57,21 @@ enum GatewayChecks {
             let models = try await LocalGateway.models(endpoint: LocalGateway.defaultEndpoint, token: token, session: session)
             try gatewayAssert(models.map(\.id) == ["local/test"], "discovery")
             GatewayMock.scenario = "ok"; GatewayMock.reports = 0; GatewayMock.requestsValid = true
-            let report = try await ReportService.generate(meeting: meeting, endpoint: LocalGateway.defaultEndpoint, model: "local/test", key: token, session: session)
+            let report = try await ReportService.generateExtended(meeting: meeting, endpoint: LocalGateway.defaultEndpoint, model: "local/test", key: token, session: session)
             try gatewayAssert(report.contains("transcript.md#") && report.contains("notes.md") && report.contains("Gateway locale / local/test") && GatewayMock.requestsValid, "report contract and references")
             print("PASS gateway loopback validation, discovery and strict report contract")
             for (scenario, expected, count) in [("quota", ReportServiceError.Kind.backendQuota, 1), ("login", .backendLogin, 1), ("length", .truncated, 2)] {
                 GatewayMock.scenario = scenario; GatewayMock.reports = 0
-                do { _ = try await ReportService.generate(meeting: meeting, endpoint: LocalGateway.defaultEndpoint, model: "local/test", key: token, session: session); throw GatewayFailure.failed("error accepted") }
+                do { _ = try await ReportService.generateExtended(meeting: meeting, endpoint: LocalGateway.defaultEndpoint, model: "local/test", key: token, session: session); throw GatewayFailure.failed("error accepted") }
                 catch let error as ReportServiceError { try gatewayAssert(error.kind == expected && GatewayMock.reports == count && !error.localizedDescription.contains("SECRET"), "gateway error category / bounded retry") }
             }
             var longMeeting = meeting
             longMeeting.segments[0].text = String(repeating:"Avanzamento del progetto. ",count:1000)
             GatewayMock.scenario = "length"; GatewayMock.reports = 0
-            do { _ = try await ReportService.generate(meeting:longMeeting,endpoint:LocalGateway.defaultEndpoint,model:"local/test",key:token,session:session); throw GatewayFailure.failed("oversized extraction accepted") }
+            do { _ = try await ReportService.generateExtended(meeting:longMeeting,endpoint:LocalGateway.defaultEndpoint,model:"local/test",key:token,session:session); throw GatewayFailure.failed("oversized extraction accepted") }
             catch let error as ReportServiceError { try gatewayAssert(error.kind == .truncated && GatewayMock.reports == 2,"extraction increases output budget with bounded attempts") }
             GatewayMock.scenario = "busy"; GatewayMock.reports = 0
-            _ = try await ReportService.generate(meeting: meeting, endpoint: LocalGateway.defaultEndpoint, model: "local/test", key: token, session: session, timing: ReportTiming(sleep: { _ in }))
+            _ = try await ReportService.generateExtended(meeting: meeting, endpoint: LocalGateway.defaultEndpoint, model: "local/test", key: token, session: session, timing: ReportTiming(sleep: { _ in }))
             try gatewayAssert(GatewayMock.reports == 2, "gateway concurrency retry")
             print("PASS gateway separates quota/login/concurrency and bounds output retries")
         } catch { failures += 1; print("FAIL gateway contract: \(error)") }
@@ -82,24 +82,37 @@ enum GatewayChecks {
                 let models = try await LocalGateway.models(endpoint: endpoint, token: token)
                 try gatewayAssert(models.contains(where: { $0.id == "local/test" }), "live gateway discovery")
                 try gatewayAssert(models.first(where: { $0.id == "groq/test" })?.input_limit_bytes == 6000, "gateway supplies Groq input budget")
-                let groqReport = try await ReportService.generate(meeting: meeting, endpoint: endpoint, model: "groq/test", key: token)
+                let groqReport = try await ReportService.generateExtended(meeting: meeting, endpoint: endpoint, model: "groq/test", key: token)
                 try gatewayAssert(groqReport.contains("transcript.md#") && groqReport.contains("Gateway locale / groq/test"), "Groq via gateway")
-                let expanded = try await ReportService.generate(meeting:meeting,endpoint:endpoint,model:"local/grow",key:token)
-                try gatewayAssert(expanded.contains("transcript.md#"),"actual gateway retries truncated response at 8000 tokens")
+                let expanded = try await ReportService.generateExtended(meeting:meeting,endpoint:endpoint,model:"local/grow",key:token)
+                try gatewayAssert(expanded.contains("transcript.md#"),"actual gateway retries truncated response above initial phase budget")
+                let operationalCache = root.appendingPathComponent("operational-checkpoint")
+                let operational = try await ReportService.generate(meeting:meeting,endpoint:endpoint,model:"local/operational",key:token,checkpointDirectory:operationalCache)
+                let operationalRepeated = try await ReportService.generate(meeting:meeting,endpoint:endpoint,model:"local/operational",key:token,checkpointDirectory:operationalCache)
+                let workerStore=try SessionStore(root:root.appendingPathComponent("worker-source"))
+                try workerStore.save(meeting)
+                let workerDisk=try MeetingWorkDisk(root:workerStore.root),workerModels=try ModelManager(directory:root.appendingPathComponent("worker-models"))
+                let worker=MeetingWorkProcessor(root:workerStore.root,models:workerModels,disk:workerDisk)
+                let workerJob=MeetingWorkJob(meetingID:meeting.id,title:meeting.title,kind:.report,report:ReportWorkSettings(endpoint:endpoint,model:"local/operational",project:"unused-fixture",style:"operational",token:token))
+                try await worker.run(workerJob,progress:{_ in})
+                let workerSaved=try workerStore.read(meeting.id)
+                try gatewayAssert(workerSaved.reportStatus=="Completato" && workerSaved.report?.contains("Marco")==true && FileManager.default.fileExists(atPath:root.appendingPathComponent(meeting.folderName).appendingPathComponent("report.md").path),"worker actual gateway transport, memory credential and archive export")
+                print("PASS report worker actual gateway transport, memory credential and archive export")
+                try gatewayAssert(operational.components(separatedBy:"\n\n---").first == operationalRepeated.components(separatedBy:"\n\n---").first && operational.contains("Marco") && operational.contains("Da confermare") == false && operational.contains("transcript.md#"),"actual gateway structured operational report and checkpoint")
                 let checkpoints = root.appendingPathComponent("checkpoint")
-                let report = try await ReportService.generate(meeting: meeting, endpoint: endpoint, model: "local/test", key: token, checkpointDirectory: checkpoints)
+                let report = try await ReportService.generateExtended(meeting: meeting, endpoint: endpoint, model: "local/test", key: token, checkpointDirectory: checkpoints)
                 try gatewayAssert(report.contains("transcript.md#") && report.contains("notes.md"), "actual gateway report citations")
-                let repeated = try await ReportService.generate(meeting: meeting, endpoint: endpoint, model: "local/test", key: token, checkpointDirectory: checkpoints)
+                let repeated = try await ReportService.generateExtended(meeting: meeting, endpoint: endpoint, model: "local/test", key: token, checkpointDirectory: checkpoints)
                 try gatewayAssert(repeated.contains("Decisione"), "actual gateway checkpoint resume")
                 do { _ = try await LocalGateway.models(endpoint: endpoint, token: "invalid-token-for-test"); throw GatewayFailure.failed("bad token accepted") }
                 catch let error as ReportServiceError { try gatewayAssert(error.kind == .gatewayToken, "actual token rejection") }
                 for (model, expected) in [("local/quota", ReportServiceError.Kind.backendQuota), ("local/length", .truncated)] {
-                    do { _ = try await ReportService.generate(meeting: meeting, endpoint: endpoint, model: model, key: token); throw GatewayFailure.failed("actual gateway failure accepted") }
+                    do { _ = try await ReportService.generateExtended(meeting: meeting, endpoint: endpoint, model: model, key: token); throw GatewayFailure.failed("actual gateway failure accepted") }
                     catch let error as ReportServiceError { try gatewayAssert(error.kind == expected, "actual gateway error category") }
                 }
                 do { _ = try await LocalGateway.models(endpoint: json["redirect"]!, token: token); throw GatewayFailure.failed("redirect accepted") }
                 catch is ReportServiceError {}
-                let task = Task { try await ReportService.generate(meeting: meeting, endpoint: endpoint, model: "local/slow", key: token) }
+                let task = Task { try await ReportService.generateExtended(meeting: meeting, endpoint: endpoint, model: "local/slow", key: token) }
                 try await Task.sleep(nanoseconds: 200_000_000); task.cancel()
                 do { _ = try await task.value; throw GatewayFailure.failed("cancel ignored") } catch is CancellationError {}
                 var idle = false

@@ -4,6 +4,9 @@ public struct GatewayModel: Decodable, Hashable, Sendable {
     public let id: String
     public let owned_by: String?
     public let input_limit_bytes: Int?
+    public let report_input_limit_bytes:Int?
+    public let report_low_effort:Bool?
+    public let provider_type:String?
 }
 private final class GatewayRedirectPolicy: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,

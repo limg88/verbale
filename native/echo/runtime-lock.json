@@ -1,0 +1,9 @@
+{
+  "source": "https://github.com/Enaium/webrtc-aec3",
+  "revision": "2cec2f52e26646f93bd2d5498bbabf59cba18da9",
+  "algorithm": "WebRTC AEC3 linear adaptive filter",
+  "processing_version": 1,
+  "delay_compensation_samples": 64,
+  "format": "16000 Hz mono Float32, 10 ms frames",
+  "processing": "bounded windows, original microphone and render timestamps retained"
+}

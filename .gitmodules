@@ -2,3 +2,6 @@
 	path = native/parakeet.cpp
 	url = https://github.com/mudler/parakeet.cpp.git
 	ignore = dirty
+[submodule "native/webrtc-aec3"]
+	path = native/webrtc-aec3
+	url = https://github.com/Enaium/webrtc-aec3.git

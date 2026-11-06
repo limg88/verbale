@@ -25,5 +25,14 @@
     "license": "OpenMDW-1.1",
     "url": "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/07a08a3a405d20c5434b9a1442f6e6cf571f57ad/nemotron-3-diarization-q8_0.gguf",
     "revision": "07a08a3a405d20c5434b9a1442f6e6cf571f57ad"
+  },
+  {
+    "id": "voice",
+    "filename": "wespeaker-resnet34-voxceleb.gguf",
+    "bytes": 26527360,
+    "sha256": "72040372494eafec299836bc1977cfc13c603cb486674ed59b0f4c03758d29da",
+    "license": "CC BY 4.0 (WeSpeaker)",
+    "url": "https://huggingface.co/mudler/voice-detect-gguf/resolve/a45a8e5ef6b267eb903bc5b95efa1c5257fa005b/wespeaker-resnet34-voxceleb.gguf",
+    "revision": "a45a8e5ef6b267eb903bc5b95efa1c5257fa005b"
   }
 ]

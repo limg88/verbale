@@ -10,6 +10,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parent.parent
 PIN = "2eac2e77d9c7ef8899f7a86a46e693ac5ac1a5cd"
+VOICE = "bca46bcbc2fe68169c2d7c414e9b290a7cb89911"
 GGML = "e705c5fed490514458bdd2eaddc43bd098fcce9b"
 
 def run(args, **kwargs):
@@ -19,11 +20,14 @@ def run(args, **kwargs):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--jobs", type=int, default=2, help="Limit Swift build CPU use (default: 2)")
     parser.add_argument("--skip-native", action="store_true")
     parser.add_argument("--dmg", action="store_true")
     parser.add_argument("--preview", action="store_true", help="Package an isolated UI preview with separate app data")
     parser.add_argument("--sign", default="-", help="Developer ID identity; default ad-hoc for local use")
     args = parser.parse_args()
+    if not args.skip_native or not (ROOT / ".build/echo/webrtc/libverbale_aec.dylib").exists():
+        run(["python3", ROOT / "scripts/build_echo.py"])
     source = ROOT / "native/parakeet.cpp"
     if not (source / "CMakeLists.txt").exists():
         if (ROOT / ".gitmodules").exists():
@@ -39,19 +43,31 @@ def main():
     sha = subprocess.check_output(["git", "-C", source / "third_party/ggml", "rev-parse", "HEAD"], text=True).strip()
     if sha != GGML:
         raise SystemExit("ggml does not match the lock")
+    voice = source / "third_party/voice-detect.cpp"
+    if not (voice / "CMakeLists.txt").exists():
+        run(["git", "-C", source, "submodule", "update", "--init", "third_party/voice-detect.cpp"])
+    if subprocess.check_output(["git", "-C", voice, "rev-parse", "HEAD"], text=True).strip() != VOICE:
+        raise SystemExit("voice-detect.cpp does not match the lock")
+    voice_stamp = ROOT / ".build/parakeet/verbale-voice-runtime.json"
+    try:
+        current_stamp = json.loads(voice_stamp.read_text())
+    except (FileNotFoundError, ValueError):
+        current_stamp = None
+    if current_stamp != {"parakeet": PIN, "voice_detect": VOICE}: args.skip_native = False
     if not args.skip_native:
         run(["cmake", "-S", source, "-B", ROOT / ".build/parakeet",
              "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.2",
              "-DPARAKEET_SHARED=ON", "-DBUILD_SHARED_LIBS=OFF", "-DPARAKEET_GGML_METAL=ON",
              "-DGGML_METAL_EMBED_LIBRARY=ON", "-DGGML_NATIVE=OFF", "-DPARAKEET_WITH_CED=OFF",
-             "-DPARAKEET_WITH_VOICEDETECT=OFF", "-DPARAKEET_BUILD_SERVER=OFF",
+             "-DPARAKEET_WITH_VOICEDETECT=ON", "-DVOICEDETECT_GGML_METAL=ON", "-DPARAKEET_BUILD_SERVER=OFF",
              "-DPARAKEET_BUILD_CLI=OFF", "-DPARAKEET_BUILD_TESTS=OFF"])
         run(["cmake", "--build", ROOT / ".build/parakeet", "--target", "parakeet", "-j", "6"])
+        voice_stamp.write_text(json.dumps({"parakeet": PIN, "voice_detect": VOICE}))
     config = "debug" if args.debug else "release"
     env = os.environ.copy()
     env["CLANG_MODULE_CACHE_PATH"] = str(ROOT / ".build/clang")
     env["SWIFTPM_MODULECACHE_OVERRIDE"] = str(ROOT / ".build/clang")
-    common = ["swift", "build", "--disable-sandbox", "--cache-path", ".build/cache", "--scratch-path", ".build/swift", "-c", config]
+    common = ["swift", "build", "--disable-sandbox", "--cache-path", ".build/cache", "--scratch-path", ".build/swift", "-c", config, "--jobs", str(max(1,args.jobs))]
     run(common, env=env)
     binary_dir = Path(subprocess.check_output(common + ["--show-bin-path"], cwd=ROOT, env=env, text=True).strip())
     app = ROOT / ("dist/Verbale Preview.app" if args.preview else "dist/Verbale.app")
@@ -70,6 +86,7 @@ def main():
         info["VerbalePreviewDataRoot"] = str(ROOT / ".build/preview-profile")
         (contents / "Info.plist").write_bytes(plistlib.dumps(info))
     shutil.copy2(ROOT / ".build/parakeet/libparakeet.dylib", contents / "Frameworks/libparakeet.dylib")
+    shutil.copy2(ROOT / ".build/echo/webrtc/libverbale_aec.dylib", contents / "Frameworks/libverbale_aec.dylib")
     shutil.copy2(ROOT / "Sources/VerbaleCore/Resources/models.json", contents / "Resources/models.json")
     for bundle in binary_dir.glob("*.bundle"):
         shutil.copytree(bundle, contents / "Resources" / bundle.name)
@@ -78,13 +95,19 @@ def main():
     for name, path in [("parakeet-MIT.txt", source / "LICENSE"), ("ggml-MIT.txt", source / "third_party/ggml/LICENSE"), ("models.md", source / "docs/licenses.md")]:
         shutil.copy2(path, notices / name)
     shutil.copy2(ROOT / "THIRD_PARTY_NOTICES.md", notices / "NOTICE.md")
+    shutil.copy2(ROOT / "native/webrtc-aec3/LICENSE", notices / "WebRTC-BSD-3-Clause.txt")
+    shutil.copy2(ROOT / "native/echo/WEBRTC-PATENTS.txt", notices / "WebRTC-PATENTS.txt")
+    shutil.copy2(ROOT / "native/echo/OOURA-NOTICE.txt", notices / "WebRTC-OOURA-NOTICE.txt")
+    shutil.copy2(ROOT / "native/echo/runtime-lock.json", contents / "Resources/echo-runtime-lock.json")
     shutil.copy2(source / "third_party/dr_wav.h", notices / "dr_wav-notice.h")
-    lock = {"parakeet": PIN, "ggml": GGML, "features": ["CPU", "Accelerate", "Metal embedded shaders"], "excluded": ["CED", "persistent voice identification"]}
+    shutil.copy2(voice / "LICENSE", notices / "voice-detect-MIT.txt")
+    lock = {"parakeet": PIN, "ggml": GGML, "voice_detect": VOICE, "features": ["CPU", "Accelerate", "Metal embedded shaders", "local speaker embeddings"], "excluded": ["CED"]}
     (ROOT / "native/runtime-lock.json").write_text(json.dumps(lock, indent=2) + "\n")
     shutil.copy2(ROOT / "native/runtime-lock.json", contents / "Resources/runtime-lock.json")
     signing = ["--force", "--sign", args.sign]
     if args.sign != "-": signing += ["--options", "runtime", "--timestamp"]
     run(["codesign"] + signing + [contents / "Frameworks/libparakeet.dylib"])
+    run(["codesign"] + signing + [contents / "Frameworks/libverbale_aec.dylib"])
     run(["codesign"] + signing + [app])
     run(["codesign", "--verify", "--deep", "--strict", app])
     if args.dmg:

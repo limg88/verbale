@@ -1,6 +1,13 @@
 import Foundation
 
 /// Verbale speaks only to the local gateway. Provider details stay behind that boundary.
+public struct ReportFailureContext: Sendable {
+    public let phase:String
+    public let index:Int
+    public let count:Int
+    public let requestID:String?
+    public let errorCode:String?
+}
 public struct ReportServiceError: LocalizedError, Sendable {
     public enum Kind: Equatable, Sendable {
         case gatewayToken, backendLogin, backendCredentials, gatewayBusy, backendQuota, backendRateLimit, gatewayConfig,
@@ -9,13 +16,24 @@ public struct ReportServiceError: LocalizedError, Sendable {
     public let kind: Kind
     public let status: Int
     public let retryAfter: Double?
+    public var context:ReportFailureContext? = nil
     public var retryable: Bool { [.gatewayBusy, .backendRateLimit, .gatewayUnavailable].contains(kind) }
-    public var errorDescription: String? {
+    public var errorDescription:String? {
+        guard let context else { return explanation }
+        let stages = ["extraction":"Estrazione","capsule":"Lettura scheda","final":"Rapporto finale","final_overview":"Sintesi del report","final_section":"Sezione del report","health":"Verifica gateway","models":"Verifica modello"]
+        let stage = stages[context.phase] ?? "Generazione report"
+        var details = [stage+(context.count > 0 ? " \(context.index)/\(context.count)":"")]
+        if status > 0 { details.append("HTTP \(status)") }
+        if let code = context.errorCode { details.append(code) }
+        if let id = context.requestID { details.append("ID richiesta: \(id)") }
+        return explanation+"\n"+details.joined(separator:" · ")
+    }
+    private var explanation:String {
         let wait = retryAfter.map { $0 > 86400 ? " Il ripristino richiede più di un giorno." : " Riprova fra circa \(Int(ceil($0))) secondi." } ?? ""
         switch kind {
         case .workLimit: return "Raggiunto il limite di richieste o budget complessivo. Le parti completate restano salvate; riprendi il report per continuare."
         case .deadline: return "Raggiunto il tempo massimo complessivo del report. Le parti completate restano salvate; riprendi per continuare."
-        case .intermediateCapacity: return "Le informazioni distinte superano la capacità del rapporto unico. Nessuna informazione è stata scartata: le schede completate restano salvate. Suddividi la riunione prima di riprovare."
+        case .intermediateCapacity: return "Una singola informazione estratta è troppo estesa per la richiesta al modello. Nessun contenuto è stato tagliato: le schede completate restano salvate."
         case .gatewayToken: return "Il token del gateway locale non è valido. Importa il token dalla cartella llm-api o correggilo nelle Impostazioni."
         case .backendLogin: return "Il gateway è raggiungibile, ma il login del backend non è valido. Verifica il client ufficiale e il metodo di accesso configurato nel gateway."
         case .backendCredentials: return "La chiave del servizio scelto nel gateway è assente o non valida. Verifica la variabile API o la voce Portachiavi indicata in config.json; il token locale non è una chiave del provider."
@@ -88,9 +106,10 @@ public struct ReportTiming: Sendable {
 final class ReportClient {
     let url: URL, model: String, key: String, session: URLSession
     let run: ReportRun
+    let reasoningEffort:String?
     let progress: @Sendable (String) -> Void
-    init(url: URL, model: String, key: String, session: URLSession, run: ReportRun, progress: @escaping @Sendable (String) -> Void) {
-        self.url = url; self.model = model; self.key = key; self.session = session; self.run = run; self.progress = progress
+    init(url: URL, model: String, key: String, session: URLSession, run: ReportRun, progress: @escaping @Sendable (String) -> Void, reasoningEffort:String? = nil) {
+        self.url = url; self.model = model; self.key = key; self.session = session; self.run = run; self.progress = progress; self.reasoningEffort = reasoningEffort
     }
     func wait(_ seconds: Double) async throws {
         guard seconds.isFinite, seconds >= 0, seconds <= 60 else { throw ReportServiceError(kind: .gatewayUnavailable, status: 0, retryAfter: seconds) }
@@ -111,14 +130,16 @@ final class ReportClient {
         try run.check()
     }
     func complete(system: String, user: String, maxOutput: Int, phase: String, index: Int, count: Int) async throws -> String {
-        var budget = maxOutput, expanded = false
+        var budget = run.outputBudget(base:maxOutput,phase:phase,bytes:user.utf8.count), expanded = false
         for attempt in 1...max(1, run.policy.maxAttempts) {
+            run.currentMetric = ReportMetric(phase:phase,index:index,count:count,attempt:attempt,budget:budget,inputBytes:user.utf8.count)
             try run.reserve(budget)
             var request = URLRequest(url: url); request.httpMethod = "POST"; request.timeoutInterval = 330
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            request.httpBody = try JSONSerialization.data(withJSONObject: ["model": model, "max_tokens": budget,
-                "messages": [["role": "system", "content": system], ["role": "user", "content": user]]])
+            var body:[String:Any] = ["model":model,"max_tokens":budget,"messages":[["role":"system","content":system],["role":"user","content":user]]]
+            if let reasoningEffort { body["reasoning_effort"] = reasoningEffort }
+            request.httpBody = try JSONSerialization.data(withJSONObject:body)
             let data: Data, reply: URLResponse
             do {
                 (data, reply) = try await run.data(for: request, session: session,

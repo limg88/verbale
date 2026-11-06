@@ -29,6 +29,11 @@ enum ReportPrompt {
     Domande aperte, responsabilità mancanti e decisioni rimandate. Non proporre nuove attività come se fossero concordate.
     Per una sezione senza evidenze scrivi «Non emersi dalle fonti disponibili». Se presenti, separa gli appunti in «Note personali», senza promuoverli a decisioni della call. Non aggiungere un titolo di primo livello: viene aggiunto dall'app.
     """
+    static let section = evidence + "\n" + """
+    Componi soltanto il corpo della SEZIONE DEL RAPPORTO richiesta, usando i record forniti. Non aggiungere titolo della sezione, sintesi o altre sezioni. Non ripetere il rapporto completo.
+    Per le sezioni dettagliate conserva ogni record distinto con nomi, incarichi, scadenze, stati, dipendenze, qualificatori e riferimenti; unisci solo duplicati effettivi. Non eliminare attività per rendere il testo più breve. Le altre sezioni verranno composte separatamente e unite dall'app.
+    Trasforma gli ID refs in citazioni esatte [[S1]], [[N]], [[M1]]. Usa solo gli ID ricevuti. Restituisci Markdown, non JSON.
+    """
     static let extraction = """
     Estrai solo JSON valido, senza Markdown: {"facts":[{"kind":"action","text":"attività; responsabile esplicito o Da assegnare; scadenza esplicita o Non indicata; stato e dipendenze","refs":["S1"]}]}.
     kind: fact, decision, action, risk, opportunity, question, note, conflict.
