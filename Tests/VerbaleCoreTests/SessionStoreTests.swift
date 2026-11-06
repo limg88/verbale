@@ -347,6 +347,7 @@ private final class ReportProtocol: URLProtocol {
         } catch { failures += 1; print("FAIL report generation: \(error)") }
         print("\(cases.count + 1) checks, \(failures) failures")
         failures += await ReportChecks.run()
+        failures += ProjectTrackingChecks.run()
         failures += await OperationalReportChecks.run()
         failures += await GatewayChecks.run()
         failures += await EchoChecks.run()

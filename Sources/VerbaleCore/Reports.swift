@@ -76,7 +76,15 @@ public enum ReportService {
         if style == .detailed {
             return try await generateExtended(meeting:meeting,endpoint:endpoint,model:model,key:key,session:session,checkpointDirectory:checkpointDirectory,timing:timing,policy:policy,diagnostics:diagnostics,progress:progress)
         }
-        return try await ProjectReport.generate(meeting:meeting,endpoint:endpoint,model:model,key:key,session:session,checkpointDirectory:checkpointDirectory,timing:timing,policy:policy,diagnostics:diagnostics,progress:progress)
+        return try await ProjectReport.generate(meeting:meeting,endpoint:endpoint,model:model,key:key,session:session,checkpointDirectory:checkpointDirectory,timing:timing,policy:policy,diagnostics:diagnostics,progress:progress).markdown
+    }
+
+    public static func generateOperational(meeting: Meeting, endpoint: String, model: String, key: String,
+                                           session: URLSession = .shared, checkpointDirectory: URL? = nil,
+                                           progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> OperationalReport {
+        try await ProjectReport.generate(meeting: meeting, endpoint: endpoint, model: model, key: key,
+                                         session: session, checkpointDirectory: checkpointDirectory,
+                                         timing: ReportTiming(), policy: ReportPolicy(), diagnostics: { ReportDiagnostics.record($0) }, progress: progress)
     }
 
     public static func generateExtended(meeting: Meeting, endpoint: String, model: String, key: String,

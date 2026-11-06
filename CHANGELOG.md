@@ -1,3 +1,10 @@
+# In sviluppo — Progetti e registro attività
+
+- Progetti locali e associazione delle riunioni; nuova pagina Da seguire con filtri per progetto, stato, scadenze confermate e responsabili mancanti.
+- Proposte strutturate dal report operativo, sottoposte a revisione del PM prima di creare o aggiornare un’attività. Suggerimenti di corrispondenza nello stesso progetto e controllo dei duplicati.
+- Registro persistente indipendente dai report, cronologia delle modifiche, fonti con ID stabili e copie del testo citato. Le date relative richiedono conferma e la rigenerazione non sovrascrive il lavoro del PM.
+- Compatibilità con le riunioni precedenti; protezione da fonti obsolete, registri corrotti e salvataggi falliti.
+
 # Verbale 0.16.2
 
 - Digitazione delle note isolata dallo stato generale dell’app; salvataggio accorpato dopo 500 ms e completato prima dei lavori sul verbale e dell’uscita. Le bozze restano disponibili dopo navigazione o errore di scrittura, con comando di riprova.

@@ -191,6 +191,7 @@ import VerbaleCore
                     await checkArchiveManagementUI(root:URL(fileURLWithPath:root),checks:&checks)
                     await checkAudioRoutingUI(root:URL(fileURLWithPath:root),checks:&checks)
                     try await model.checkResponsiveEdits(root:URL(fileURLWithPath:root),checks:&checks)
+                    try await model.checkProjectTrackingUI(window:window,root:URL(fileURLWithPath:root),checks:&checks)
                     window.setContentSize(NSSize(width: 1000, height: 680))
                     model.tab = "session"; model.meetingSection = "report"
                     try? await Task.sleep(for: .milliseconds(350))

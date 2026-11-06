@@ -132,6 +132,7 @@ import VerbaleCore
     var voiceTask: Task<Void, Never>?
     var voicePlayer: AVAudioPlayer?
     var voicePlaybackID = UUID()
+    let projectTracker: ProjectTracker
     let store: SessionStore
     let models: ModelManager
     let engine = TranscriptionEngine()
@@ -387,6 +388,7 @@ import VerbaleCore
         let previewRoot = (Bundle.main.object(forInfoDictionaryKey: "VerbalePreviewDataRoot") as? String).map { URL(fileURLWithPath: $0, isDirectory: true) }
         do { store = try SessionStore(root: previewRoot?.appendingPathComponent("Sessions")); models = try ModelManager(directory: previewRoot?.appendingPathComponent("Models")) }
         catch { fatalError("Impossibile creare la cartella dati Verbale: \(error)") }
+        projectTracker = ProjectTracker(file: store.root.deletingLastPathComponent().appendingPathComponent("project-ledger.json"))
         do {
             workDisk=try MeetingWorkDisk(root:store.root)
             let processor=MeetingWorkProcessor(root:store.root,models:models,disk:workDisk,credential:{ config in
