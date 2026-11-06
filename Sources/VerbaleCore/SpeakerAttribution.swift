@@ -9,9 +9,11 @@ public struct SpeakerAttribution: Sendable {
 }
 public extension Meeting {
     func attribution(for segment: Segment, learned: SpeakerAutomaticAssignment? = nil) -> SpeakerAttribution {
+        attribution(for:segment,match:(voiceMatches ?? []).first{$0.segmentID==segment.id && $0.state != .rejected},learned:learned)
+    }
+    func attribution(for segment:Segment,match:VoiceMatch?,learned:SpeakerAutomaticAssignment? = nil)->SpeakerAttribution {
         let actual = speakerName(for:segment)
         if learned != nil { return SpeakerAttribution(name:actual,state:.recognized,detail:"Nome riconosciuto dai passaggi confermati. Puoi correggerlo dal menu.",profileID:nil) }
-        let match = (voiceMatches ?? []).first { $0.segmentID == segment.id && $0.state != .rejected }
         if let match, match.state == .automatic {
             return SpeakerAttribution(name:actual,state:.recognized,detail:"Voce riconosciuta nel profilo di \(match.name).",profileID:match.profileID)
         }

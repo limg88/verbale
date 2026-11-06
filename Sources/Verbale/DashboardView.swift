@@ -191,7 +191,7 @@ struct DashboardView: View {
                     Text("Report").tag("report")
                 }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 410)
                 switch model.meetingSection {
-                case "notes": MeetingNotesView(meeting: meeting)
+                case "notes": MeetingNotesView(meeting: meeting,drafts:model.noteDrafts)
                 case "report": MeetingReportView(meeting: meeting)
                 default: TranscriptReviewView(meeting: meeting)
                 }

@@ -136,6 +136,7 @@ import VerbaleCore
                     model.current = originalMeeting; model.focusSpeaker("1")
                 }
                 let wrongMeetingSave = await model.rename("1",to:"Wrong meeting",meetingID:UUID())
+                await model.flushVoiceSaves()
                 checks["speaker rename cannot target a different meeting"] = !wrongMeetingSave && model.current?.speakers["1"] == "Anna"
                 let request = model.focusRequestID; model.focusSpeaker("1")
                 checks["speaker navigation can repeat after manual scrolling"] = model.focusRequestID != request
@@ -150,6 +151,7 @@ import VerbaleCore
                 for i in 0..<100 { nameDraft.text = "Nome in modifica \(i)" }
                 checks["typing a speaker name performs no persistence"] = try Data(contentsOf:model.store.workspace(meeting.id).appendingPathComponent("meeting.json")) == untouched && model.current?.speakers["1"] == "Anna"
                 checks["manual correction saves through coordinator"] = model.correctSegment(meetingID: meeting.id, segmentID: segment.id, text: "Rivediamo la proposta martedì.", speakerID: "1", newSpeaker: "")
+                await model.flushVoiceSaves()
                 let saved = try model.store.read(meeting.id)
                 checks["correction history and stale report persist"] = saved.corrections.count == 1 && saved.reportNeedsUpdate && saved.exported
                 model.focusNotes = false; model.meetingSection = "transcript"
@@ -188,6 +190,7 @@ import VerbaleCore
                     await checkSpeakerGroupingUI(root:URL(fileURLWithPath:root),checks:&checks)
                     await checkArchiveManagementUI(root:URL(fileURLWithPath:root),checks:&checks)
                     await checkAudioRoutingUI(root:URL(fileURLWithPath:root),checks:&checks)
+                    try await model.checkResponsiveEdits(root:URL(fileURLWithPath:root),checks:&checks)
                     window.setContentSize(NSSize(width: 1000, height: 680))
                     model.tab = "session"; model.meetingSection = "report"
                     try? await Task.sleep(for: .milliseconds(350))
@@ -351,6 +354,7 @@ import VerbaleCore
             }
             let first = pieces[0]
             checks["audit selection applies through coordinator"] = model.applySpeakerAudit(groupID: groups[0].id, selected: [first.id], name: "Nome confermato")
+            await model.flushVoiceSaves()
             let saved = try model.store.read(meeting.id)
             checks["audit applies only explicitly selected names"] = saved.speakerName(for: saved.segments[0]) == "Nome confermato" && saved.speakerName(for: saved.segments[1]) == "Nome precedente 2"
             checks["audit can continue after partial confirmation"] = model.speakerAudit?.isCurrent(for: saved) == true && model.speakerAudit?.pending(groups[0].id).count == 2
@@ -358,6 +362,7 @@ import VerbaleCore
             checks["audit automatic outputs are not manual evidence"] = model.speakerAudit?.manualEvidence.count == 1
             model.auditReviewVisible = false
             let renamed = await model.rename("old-1",to:"Persona rinominata",meetingID:meeting.id)
+            await model.flushVoiceSaves()
             checks["manual rename invalidates obsolete speaker proposals"] = renamed && model.speakerAudit == nil && model.loadSpeakerAudit(model.current!) == nil
             try? await Task.sleep(for: .milliseconds(250))
         } catch { checks["audit UI checks complete"] = false; print("Audit UI checks: \(error)") }
@@ -464,6 +469,7 @@ import VerbaleCore
             let kept = saved.segments.last!
             checks["ASR reconciled segment remains addressable from report"] = model.openReportSource(URL(string:"transcript.md#\(kept.anchor)")!) && model.focusedSegmentID == kept.id
             checks["ASR reconciled text remains manually editable"] = model.correctSegment(meetingID:saved.id,segmentID:kept.id,text:"con Giuseppe.",speakerID:nil,newSpeaker:"") && model.current?.transcriptBoundaryEdits?.count == 1
+            await model.flushVoiceSaves()
             try? await Task.sleep(for:.milliseconds(200))
         } catch { checks["ASR boundary UI completes"] = false; print("ASR boundary UI check: \(error)") }
     }
@@ -496,6 +502,7 @@ import VerbaleCore
                 try bitmap.representation(using:.png,properties:[:])?.write(to:root.appendingPathComponent("desktop-grouped-speakers.png"))
             }
             let renamed = await model.rename("group-4",to:"Nome aggiornato",meetingID:fixture.id)
+            await model.flushVoiceSaves()
             let saved = try model.store.read(fixture.id)
             checks["person rename persists across all underlying speaker slots"] = renamed && (0..<6).allSatisfy { saved.speakers["group-\($0)"] == "Nome aggiornato" } && saved.speakerGroups.count == 2
             model.focusSpeaker("group-5")
@@ -533,6 +540,7 @@ import VerbaleCore
             offline.speakers["persona"] = "Prima"
             try model.store.save(offline); model.current = offline
             let nameSaved = await model.rename("persona",to:"Dopo",meetingID:offline.id)
+            await model.flushVoiceSaves()
             let offlineSaved = try model.store.read(offline.id)
             checks["speaker rename remains consistent when export destination is unavailable"] = nameSaved && model.current?.speakers["persona"] == "Dopo" && offlineSaved.speakers["persona"] == "Dopo" && model.exportError != nil
             model.exportError = nil
@@ -575,6 +583,7 @@ import VerbaleCore
             draft.verified = true; draft.name = ""; draft.existing = profile.id.uuidString
             checks["existing voice profile does not require a new name"] = draft.canSave
             model.assignSavedVoice(profile.id, segmentID: segment.id)
+            await model.flushVoiceSaves()
             let assigned = try model.store.read(meeting.id)
             checks["saved voice profile assigns name without re-enrollment"] = assigned.segments.first(where: { $0.id == segment.id }).map { assigned.speakerName(for: $0) == profile.name } == true
             checks["profile name exported in transcript"] = try String(contentsOf: URL(fileURLWithPath: assigned.destination).appendingPathComponent(assigned.folderName).appendingPathComponent("transcript.md")).contains(profile.name)
@@ -637,6 +646,7 @@ import VerbaleCore
             meeting.voiceMatches = nil; meeting.segments[meeting.segments.count - 1].speakerID = "Anonymous demo"
             meeting.applyVoiceGroup([id], ranking: ranking, automatic: true); model.current = meeting
             await model.rename("voice-" + profile.id.uuidString, to: "Nome corretto")
+            await model.flushVoiceSaves()
             checks["manual rename overrides voice recognition"] = model.current?.voiceProtectedSegments.contains(id) == true && model.current?.voiceMatches?.isEmpty == true
             meeting.voiceMatches = nil; meeting.segments[meeting.segments.count - 1].speakerID = "Anonymous demo"
             meeting.applyVoiceGroup([id], ranking: ranking, automatic: false); model.current = meeting
@@ -655,6 +665,8 @@ import VerbaleCore
         terminationPending = true
         model.prepareToQuit()
         Task {
+            await model.flushVoiceSaves()
+            guard !model.hasUnsavedEdits else {terminationPending=false;model.cancelQuitAfterSaveFailure();return}
             await model.workQueue.shutdown()
             if model.isRecording { await model.stop() }
             await model.flushVoiceSaves()

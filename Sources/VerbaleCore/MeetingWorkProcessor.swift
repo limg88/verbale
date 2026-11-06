@@ -9,6 +9,7 @@ public actor MeetingWorkDisk {
     public func list() throws -> [Meeting] { try store.list() }
     public func save(_ meeting:Meeting) throws { try store.save(meeting) }
     public func export(_ meeting:Meeting) throws -> Meeting { try store.export(meeting) }
+    public func exportReview(_ meeting:Meeting) throws -> Meeting { try store.export(meeting,documentsOnly:true) }
     public func commit(_ value:Meeting,expected:Meeting,export:Bool) throws -> Meeting {
         let latest=try store.read(value.id)
         guard try JSONCoding.encoder().encode(latest) == JSONCoding.encoder().encode(expected) else { throw VerbaleError.message("La riunione è cambiata durante l’elaborazione. I dati più recenti sono stati conservati.") }

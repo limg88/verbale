@@ -17,6 +17,13 @@ struct MarkerMenu: View {
 private final class TranscriptReviewState: ObservableObject {
     @Published var editing: Segment?
     @Published var followLive = true
+    private var key:String?
+    private var index:TranscriptIndex?
+    func presentation(_ meeting:Meeting)->TranscriptIndex {
+        let revision="\(meeting.id):\(meeting.reportInputRevision?.uuidString ?? "legacy"):\(meeting.segments.count):\(meeting.voiceMatches?.count ?? 0)"
+        if key != revision || index == nil {index=TranscriptIndex(meeting);key=revision}
+        return index!
+    }
 }
 
 struct TranscriptReviewView: View {
@@ -28,6 +35,7 @@ struct TranscriptReviewView: View {
         switch job.state { case .running:return "Trascrizione in corso…";case .waitingForTeams:return "Attesa fine chiamata Teams";default:return "Trascrizione in coda" }
     }
     var body: some View {
+        let presentation=state.presentation(meeting)
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Trascrizione").font(.headline)
@@ -61,11 +69,11 @@ struct TranscriptReviewView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 8) {
-                            ForEach(meeting.segments.sorted { $0.start < $1.start }) { segment in
+                            ForEach(presentation.segments) { segment in
                                 HStack(alignment: .top, spacing: 16) {
                                     Text(timecode(segment.start)).font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary).padding(.top, 3).frame(width: 68, alignment: .leading)
                                     VStack(alignment: .leading, spacing: 6) {
-                                        let attribution = meeting.attribution(for:segment,learned:model.speakerAudit?.automaticAssignments?[segment.id.uuidString])
+                                        let attribution = meeting.attribution(for:segment,match:presentation.matches[segment.id],learned:model.speakerAudit?.automaticAssignments?[segment.id.uuidString])
                                         HStack(spacing:6) {
                                             Button { if let id = segment.speakerID { model.focusSpeaker(id) } } label: {
                                                 Text(attribution.name).font(.system(size:12,weight:.semibold)).foregroundStyle(Palette.accent)
@@ -85,7 +93,7 @@ struct TranscriptReviewView: View {
                                             }
                                         }
                                         Text(segment.text).font(.system(size: 14)).textSelection(.enabled).lineSpacing(5)
-                                        if meeting.corrections.contains(where: { $0.segmentID == segment.id }) { Text("Corretto").font(.caption).foregroundStyle(.secondary) }
+                                        if presentation.corrected.contains(segment.id) { Text("Corretto").font(.caption).foregroundStyle(.secondary) }
                                     }
                                     Spacer(minLength: 0)
                                     Menu {

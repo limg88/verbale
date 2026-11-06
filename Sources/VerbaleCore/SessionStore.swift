@@ -45,7 +45,7 @@ public final class SessionStore {
         meeting.duration = max(meeting.duration, meeting.chunks.map { $0.start + $0.duration }.max() ?? 0)
         try save(meeting); return meeting
     }
-    public func export(_ input: Meeting) throws -> Meeting {
+    public func export(_ input: Meeting,documentsOnly:Bool = false) throws -> Meeting {
         var meeting = input
         let destination = URL(fileURLWithPath: meeting.destination, isDirectory: true)
         var isDirectory: ObjCBool = false
@@ -59,9 +59,26 @@ public final class SessionStore {
                 throw VerbaleError.message("La cartella esiste già e non è stata creata per questa riunione.")
             }
         }
-        if let bytes = try? Data(contentsOf: target.appendingPathComponent("meeting.json")),
-           let old = try? JSONCoding.decoder().decode(Meeting.self, from: bytes), old.id != meeting.id {
+        let previous=(try? Data(contentsOf:target.appendingPathComponent("meeting.json"))).flatMap {try? JSONCoding.decoder().decode(Meeting.self,from:$0)}
+        if let previous,previous.id != meeting.id {
             throw VerbaleError.message("La cartella appartiene a un'altra riunione. Scegli una nuova destinazione.")
+        }
+        // Review-only exports reuse attachments already committed by a full export.
+        // Added/removed audio or screenshots, missing/corrupt metadata, or a new
+        // destination always take the verified full export path.
+        var reuseArtifacts=documentsOnly && previous.map { old in
+            old.keepAudio==meeting.keepAudio && old.chunks.count==meeting.chunks.count &&
+            zip(old.chunks,meeting.chunks).allSatisfy {$0.id==$1.id && $0.filename==$1.filename && $0.cleanedFilename==$1.cleanedFilename} &&
+            old.screenshots.map(\.filename)==meeting.screenshots.map(\.filename)
+        } == true
+        if reuseArtifacts {
+            let paths=meeting.screenshots.map(\.filename)+(meeting.keepAudio ? meeting.chunks.flatMap {[$0.filename]+($0.cleanedFilename.map{[$0]} ?? [])}:[])
+            reuseArtifacts=paths.allSatisfy {FileManager.default.fileExists(atPath:target.appendingPathComponent($0).path)}
+        }
+        func writeDocument(_ bytes:Data,_ name:String) throws {
+            let path=target.appendingPathComponent(name)
+            if documentsOnly,(try? Data(contentsOf:path))==bytes {return}
+            try bytes.write(to:path,options:.atomic)
         }
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         try meeting.id.uuidString.write(to: owner, atomically: true, encoding: .utf8)
@@ -71,24 +88,24 @@ public final class SessionStore {
             "<a id=\"\($0.anchor)\"></a>\n\n- [\(timecode($0.timestamp))] \($0.kind.label)"
         }.joined(separator: "\n\n")
         let shots = meeting.screenshots.map { "- [\(timecode($0.timestamp))](\($0.filename))" }.joined(separator: "\n")
-        try "# \(meeting.title)\n\n\(body)\n\n\(markers.isEmpty ? "" : "## Momenti segnati\n\n" + markers + "\n\n")\(shots.isEmpty ? "" : "## Screenshot\n\n" + shots)\n".write(to: target.appendingPathComponent("transcript.md"), atomically: true, encoding: .utf8)
-        try JSONCoding.encoder().encode(segments).write(to: target.appendingPathComponent("transcript.json"), options: .atomic)
-        try meeting.notes.write(to: target.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
-        try JSONCoding.encoder().encode(meeting.markers).write(to: target.appendingPathComponent("markers.json"), options: .atomic)
-        try JSONCoding.encoder().encode(meeting.corrections).write(to: target.appendingPathComponent("corrections.json"), options: .atomic)
+        try writeDocument(Data(("# \(meeting.title)\n\n\(body)\n\n\(markers.isEmpty ? "" : "## Momenti segnati\n\n" + markers + "\n\n")\(shots.isEmpty ? "" : "## Screenshot\n\n" + shots)\n").utf8),"transcript.md")
+        try writeDocument(JSONCoding.encoder().encode(segments),"transcript.json")
+        try writeDocument(Data(meeting.notes.utf8),"notes.md")
+        try writeDocument(JSONCoding.encoder().encode(meeting.markers),"markers.json")
+        try writeDocument(JSONCoding.encoder().encode(meeting.corrections),"corrections.json")
         if let duplicates = meeting.echoDuplicates, !duplicates.isEmpty {
-            try JSONCoding.encoder().encode(duplicates).write(to: target.appendingPathComponent("echo-duplicates.json"), options: .atomic)
+            try writeDocument(JSONCoding.encoder().encode(duplicates),"echo-duplicates.json")
         }
         if let edits = meeting.transcriptBoundaryEdits, !edits.isEmpty {
-            try JSONCoding.encoder().encode(edits).write(to:target.appendingPathComponent("transcript-boundaries.json"),options:.atomic)
+            try writeDocument(JSONCoding.encoder().encode(edits),"transcript-boundaries.json")
         }
         let refinement = workspace(meeting.id).appendingPathComponent("transcription-refinement.json")
         if FileManager.default.fileExists(atPath:refinement.path) {
-            try Data(contentsOf:refinement).write(to:target.appendingPathComponent("transcription-refinement.json"),options:.atomic)
+            try writeDocument(Data(contentsOf:refinement),"transcription-refinement.json")
         }
-        if let report = meeting.reportDocument { try report.write(to: target.appendingPathComponent("report.md"), atomically: true, encoding: .utf8) }
-        for shot in meeting.screenshots { try copyArtifact(shot.filename, meeting: meeting, target: target) }
-        if meeting.keepAudio {
+        if let report = meeting.reportDocument { try writeDocument(Data(report.utf8),"report.md") }
+        if !reuseArtifacts { for shot in meeting.screenshots { try copyArtifact(shot.filename, meeting: meeting, target: target) } }
+        if meeting.keepAudio && !reuseArtifacts {
             for chunk in meeting.chunks {
                 try copyArtifact(chunk.filename, meeting: meeting, target: target)
                 if let cleaned = chunk.cleanedFilename { try copyArtifact(cleaned, meeting: meeting, target: target) }
@@ -96,7 +113,7 @@ public final class SessionStore {
         }
         meeting.exported = true
         // Commit marker is written last; earlier failures never report successful export.
-        try JSONCoding.encoder().encode(meeting).write(to: target.appendingPathComponent("meeting.json"), options: .atomic)
+        try writeDocument(JSONCoding.encoder().encode(meeting),"meeting.json")
         try save(meeting)
         return meeting
     }

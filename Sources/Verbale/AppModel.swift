@@ -137,6 +137,7 @@ import VerbaleCore
     let engine = TranscriptionEngine()
     let echoCancellation = EchoCancellation()
     let capture = CaptureService()
+    let noteDrafts = NotesDraftState()
     let workDisk:MeetingWorkDisk
     let workQueue:MeetingWorkQueue
     private var workPreviewGeneration:UUID?
@@ -151,10 +152,12 @@ import VerbaleCore
     private var voiceSaveTask:Task<Void,Never>?
     var currentWork:MeetingWorkJob? { guard let id=current?.id else{return nil};return workJobs.first{$0.meetingID==id && $0.state.pending} }
     func work(_ id:UUID,kind:MeetingWorkKind)->MeetingWorkJob? { workJobs.last{$0.meetingID==id && $0.kind==kind} }
-    func workLocked(_ id:UUID)->Bool { workJobs.contains{$0.meetingID==id && $0.state.pending} || savingVoiceMeetings.contains(id) || pendingWorkSubmissions.contains(id) }
+    func workLocked(_ id:UUID)->Bool { workJobs.contains{$0.meetingID==id && $0.state.pending} || savingVoiceMeetings.contains(id) || pendingWorkSubmissions.contains(id) || noteDrafts.contains(id) }
     var navigationLocked:Bool { shuttingDown || busy || (working && !isRecording) || reportBusy || archiveBusy || titleEditing != nil || pendingRemoval != nil || voiceEnrollment != nil || auditReviewVisible || refinementVisible }
     var voiceDecisionLocked:Bool { navigationLocked || current.map{pendingWorkSubmissions.contains($0.id)} == true || current.map{meeting in workJobs.contains{$0.meetingID==meeting.id && $0.state.pending}} == true }
-    func flushVoiceSaves() async { if let voiceSaveTask { await voiceSaveTask.value } }
+    func flushVoiceSaves() async { noteDrafts.flush(); if let voiceSaveTask { await voiceSaveTask.value } }
+    var hasUnsavedEdits:Bool { !noteDrafts.values.isEmpty }
+    func cancelQuitAfterSaveFailure() {shuttingDown=false;if Bundle.main.object(forInfoDictionaryKey:"VerbalePreviewDataRoot") == nil {let call=automaticCallID,attempted=automaticAttempted;configureTeamsAutomation();automaticCallID=call;automaticAttempted=attempted};error="Ci sono modifiche non salvate. Riprova il salvataggio prima di uscire."}
     func cancelWork(_ id:UUID) { Task { await workQueue.cancel(id) } }
     func dismissWorkError(_ id:UUID) { dismissedWorkErrors.insert(id) }
     private func acceptWork(_ jobs:[MeetingWorkJob]) {
@@ -162,18 +165,20 @@ import VerbaleCore
         let settled=jobs.filter { job in !job.state.pending && old.first(where:{$0.id==job.id})?.state.pending == true }
         guard !settled.isEmpty else{return}
         Task {
-            if let all=try? await workDisk.list() {
-                meetings=all
-                if let selected=current?.id,settled.contains(where:{$0.meetingID==selected}),let fresh=all.first(where:{$0.id==selected}) { current=fresh;speakerAudit=nil;learningSummary="" }
+            for id in Set(settled.map(\.meetingID)) {
+                guard let fresh=try? await workDisk.read(id) else{continue}
+                if let i=meetings.firstIndex(where:{$0.id==id}) {meetings[i]=fresh}
+                if current?.id==id {current=fresh;speakerAudit=nil;learningSummary=""}
             }
         }
     }
+
     func persistVoiceDecision(_ meeting:Meeting) {
         voiceSaveFailures.remove(meeting.id)
-        if voiceSaveOriginals[meeting.id] == nil { voiceSaveOriginals[meeting.id]=current }
-        current=meeting
+        if voiceSaveOriginals[meeting.id] == nil { voiceSaveOriginals[meeting.id]=current?.id==meeting.id ? current : meetings.first(where:{$0.id==meeting.id}) }
+        if current?.id==meeting.id {current=meeting}
         if let i=meetings.firstIndex(where:{$0.id==meeting.id}) { meetings[i]=meeting }
-        speakerAudit=nil;learningSummary=""
+        if current?.id==meeting.id {speakerAudit=nil;learningSummary=""}
         voiceSaveSnapshots[meeting.id]=meeting;savingVoiceMeetings.insert(meeting.id)
         guard voiceSaveTask == nil else{return}
         voiceSaveTask=Task {
@@ -184,6 +189,7 @@ import VerbaleCore
                 do {
                     try await workDisk.save(snapshot)
                     voiceSaveOriginals[id]=snapshot
+                    noteDrafts.saved(id,text:snapshot.notes)
                 } catch {
                     let persisted=(try? await workDisk.read(id)) ?? voiceSaveOriginals[id]
                     voiceSaveSnapshots.removeValue(forKey:id)
@@ -191,8 +197,9 @@ import VerbaleCore
                         if current?.id==id {current=persisted}
                         if let i=meetings.firstIndex(where:{$0.id==id}) {meetings[i]=persisted}
                     }
+                    noteDrafts.failed(id)
                     voiceSaveFailures.insert(id)
-                    self.error="Conferme vocali non salvate per «\(snapshot.title)». Ripeti la conferma: "+error.localizedDescription
+                    self.error="Modifiche non salvate per «\(snapshot.title)». Riprova la modifica: "+error.localizedDescription
                     savingVoiceMeetings.remove(id);voiceSaveOriginals.removeValue(forKey:id)
                     continue
                 }
@@ -200,7 +207,7 @@ import VerbaleCore
                 // spending time on an obsolete export.
                 if voiceSaveSnapshots[id] != nil {continue}
                 do {
-                    let saved=try await workDisk.export(snapshot)
+                    let saved=try await workDisk.exportReview(snapshot)
                     meetingExportErrors.removeValue(forKey:id)
                     if current?.id==id {exportError=nil}
                     if voiceSaveSnapshots[id] == nil {
@@ -208,7 +215,7 @@ import VerbaleCore
                         if let i=meetings.firstIndex(where:{$0.id==id}) { meetings[i]=saved }
                     }
                 } catch {
-                    let issue="Conferme salvate sul Mac; aggiornamento dell’output da riprovare: "+error.localizedDescription
+                    let issue="Modifiche salvate sul Mac; aggiornamento dell’output da riprovare: "+error.localizedDescription
                     meetingExportErrors[id]=issue
                     if current?.id==id {exportError=issue}
                 }
@@ -220,8 +227,8 @@ import VerbaleCore
     func queueTranscription(_ meeting:Meeting) async {
         if let previewRecordingHandoff {await previewRecordingHandoff(meeting);return}
         pendingWorkSubmissions.insert(meeting.id);defer{pendingWorkSubmissions.remove(meeting.id)}
-        if let voiceSaveTask { await voiceSaveTask.value }
-        guard !voiceSaveFailures.contains(meeting.id) else{return}
+        await flushVoiceSaves()
+        guard !voiceSaveFailures.contains(meeting.id),!noteDrafts.contains(meeting.id) else{return}
         var job=MeetingWorkJob(meetingID:meeting.id,title:meeting.title,kind:.transcription);job.automaticVoices=automaticVoices
         _=await workQueue.enqueue(job)
         acceptWork(await workQueue.snapshot())
@@ -411,6 +418,7 @@ import VerbaleCore
                 if stale { persistDestination(url) }
             }
         }
+        noteDrafts.submit = { [weak self] id,text in self?.saveNotes(text,meetingID:id) }
         reload()
         Task { await refreshModels() }
         Task { await refreshAudioRouting() }
@@ -631,6 +639,7 @@ import VerbaleCore
     }
 
     func stop() async {
+        noteDrafts.flush()
         guard isRecording && !busy else { return }
         if automaticSessionID != nil { teamsStatus = "Registrazione terminata · attesa della prossima chiamata" }
         automaticSessionID = nil
@@ -785,37 +794,36 @@ import VerbaleCore
         if pauseDeferredProcessing,let meeting = current { waitForTeamsEnd(meeting.id) }
     }
     @discardableResult func saveReview(_ meeting: Meeting) -> Bool {
-        do {
-            try store.save(meeting);current=meeting
-            if activeRecording?.id==meeting.id {activeRecording=meeting}
-            exportCurrent();reloadWithoutRecovery()
-            return true
-        } catch { self.error = error.localizedDescription; return false }
+        // Callers have already validated the edit. Persist off-main, coalescing
+        // successive snapshots; an eventual failure restores the durable version.
+        persistVoiceDecision(meeting)
+        return true
     }
-    func saveNotes(_ notes: String) {
-        guard !busy, !reportBusy, var meeting = current, !workLocked(meeting.id), meeting.notes != notes else { return }
-        meeting.notes = notes; meeting.invalidateReport(); saveReview(meeting)
+    func saveNotes(_ notes: String,meetingID:UUID? = nil) {
+        guard let id=meetingID ?? current?.id,
+              !workJobs.contains(where:{$0.meetingID==id && $0.state.pending}),
+              var meeting=(recording?.id==id ? recording : current?.id==id ? current : meetings.first(where:{$0.id==id})) else{return}
+        guard meeting.notes != notes || noteDrafts.failures.contains(id) else {if !savingVoiceMeetings.contains(id) {noteDrafts.saved(id,text:notes)};return}
+        meeting.notes=notes;meeting.invalidateReport()
+        if recording?.id==id {
+            // The active capture still owns its checkpoints. Keep this infrequent
+            // write on its existing serial main-actor path, avoiding stale audio snapshots.
+            installRecording(meeting)
+            do {try store.save(meeting);noteDrafts.saved(id,text:notes)}
+            catch {noteDrafts.failed(id);self.error="Note non salvate: "+error.localizedDescription}
+        } else {persistVoiceDecision(meeting)}
     }
     @discardableResult func rename(_ id: String, to value: String, meetingID: UUID? = nil) async -> Bool {
         let name = value.trimmingCharacters(in:.whitespacesAndNewlines)
         guard !sessionLocked, !name.isEmpty, var meeting = current, meetingID == nil || meeting.id == meetingID else { return false }
         do { if try !meeting.renameSpeakerPerson(id,to:name) { return true } }
         catch { self.error = error.localizedDescription; return false }
-        let root = store.root, snapshot = meeting
-        busy = true; status = "Salvataggio del nome…"; defer { busy = false }
-        do {
-            let saved = try await Task.detached(priority:.userInitiated) {
-                let disk = try SessionStore(root:root)
-                try disk.save(snapshot)
-                var saved = snapshot, issue:String?
-                do { saved = try disk.export(snapshot) } catch { issue = error.localizedDescription }
-                return (saved,try disk.list(),issue)
-            }.value
-            current = saved.0; meetings = saved.1; exportError = saved.2; status = "Nome dell’interlocutore salvato"
-            discardStaleSpeakerAudit(for:saved.0)
-            return true
-        } catch { self.error = error.localizedDescription; return false }
+        persistVoiceDecision(meeting)
+        discardStaleSpeakerAudit(for:meeting)
+        status="Nome dell’interlocutore aggiornato"
+        return true
     }
+
     func focusSpeaker(_ id: String) {
         guard let meeting = current else { return }
         guard let first = meeting.firstSegment(forSpeaker:id) else { return }
@@ -871,14 +879,13 @@ import VerbaleCore
         let root = store.root
         let previewTrash = (Bundle.main.object(forInfoDictionaryKey:"VerbalePreviewDataRoot") as? String).map { URL(fileURLWithPath:$0).appendingPathComponent("Trash") }
         do {
-            let list = try await Task.detached {
+            try await Task.detached {
                 let disk = try SessionStore(root:root)
                 _ = try disk.trashWorkspace(meeting.id,testingTrash:previewTrash)
-                return try disk.list()
             }.value
             await workQueue.forget(meeting.id)
             acceptWork(await workQueue.snapshot())
-            meetings = list
+            meetings.removeAll{$0.id==meeting.id}
             if current?.id == meeting.id { current = nil; speakerAudit = nil; learningSummary = ""; title = "" }
             return true
         } catch { self.error = "Rimozione non completata: " + error.localizedDescription; return false }
@@ -894,12 +901,12 @@ import VerbaleCore
                 try latest.changeTitle(value); try disk.save(latest)
                 var issue: String?
                 do { latest = try disk.export(latest) } catch { issue = error.localizedDescription }
-                return (latest,try disk.list(),issue)
+                return (latest,issue)
             }.value
-            meetings = result.1
-            if current?.id == meeting.id { current = result.0; title = result.0.title; exportError = result.2 }
+            if let i=meetings.firstIndex(where:{$0.id==meeting.id}) {meetings[i]=result.0}
+            if current?.id == meeting.id { current = result.0; title = result.0.title; exportError = result.1 }
             titleEditing = nil
-            if let issue = result.2 { self.error = "Titolo salvato nell’archivio. Aggiornamento dei file esportati da riprovare: " + issue }
+            if let issue = result.1 { self.error = "Titolo salvato nell’archivio. Aggiornamento dei file esportati da riprovare: " + issue }
             return true
         } catch { self.error = error.localizedDescription; return false }
     }
@@ -957,8 +964,8 @@ import VerbaleCore
             meetingSection="report";tab="session";pendingWorkSubmissions.insert(meeting.id)
             Task {
                 defer{pendingWorkSubmissions.remove(meeting.id)}
-                if let voiceSaveTask { await voiceSaveTask.value }
-                guard !voiceSaveFailures.contains(meeting.id) else{return}
+                await flushVoiceSaves()
+                guard !voiceSaveFailures.contains(meeting.id),!noteDrafts.contains(meeting.id) else{return}
                 _=await workQueue.enqueue(MeetingWorkJob(meetingID:meeting.id,title:meeting.title,kind:.report,report:settings))
                 acceptWork(await workQueue.snapshot())
             }
@@ -1156,6 +1163,7 @@ extension AppModel {
         let marked=try store.read(live.id)
         checks["global marker targets active recording not selected history"] = recording?.markers.count==1 && current?.markers.isEmpty==true && marked.markers.count==1
         saveNotes("Note storiche modificate")
+        await flushVoiceSaves()
         let noted=try store.read(history.id)
         checks["notes on historical meeting do not overwrite recording notes"] = recording?.notes=="Note della registrazione" && noted.notes=="Note storiche modificate"
         checks["active recording cannot be deleted from archive while browsing elsewhere"] = !canManageMeeting(live)

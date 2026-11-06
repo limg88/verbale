@@ -65,18 +65,22 @@ struct MeetingReportView: View {
 struct MeetingNotesView: View {
     @EnvironmentObject var model: AppModel
     let meeting: Meeting
+    @ObservedObject var drafts:NotesDraftState
+    init(meeting:Meeting,drafts:NotesDraftState) {self.meeting=meeting;self.drafts=drafts}
     @FocusState private var focused: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("Note personali").font(.headline)
                 Spacer()
-                Text("Salvataggio automatico").font(.caption).foregroundStyle(.secondary)
+                if drafts.failures.contains(meeting.id) {
+                    Button("Riprova salvataggio") {drafts.commit(meeting.id)}.font(.caption)
+                } else {Text(drafts.contains(meeting.id) ? "Salvataggio…":"Salvataggio automatico").font(.caption).foregroundStyle(.secondary)}
             }
-            TextEditor(text: Binding(get: { model.current?.notes ?? "" }, set: { model.saveNotes($0) }))
+            TextEditor(text: Binding(get: { drafts.text(for:meeting.id,fallback:meeting.notes) }, set: { drafts.edit($0,id:meeting.id) }))
                 .font(.system(size: 14)).scrollContentBackground(.hidden).padding(12)
                 .background(.background, in: RoundedRectangle(cornerRadius: 12))
-                .focused($focused).disabled(model.reportBusy || model.busy || model.current.map{model.workLocked($0.id)} == true)
+                .focused($focused).disabled(model.reportBusy || model.busy || model.workJobs.contains{$0.meetingID==meeting.id && $0.state.pending} || model.pendingWorkSubmissions.contains(meeting.id))
                 .accessibilityLabel("Note personali della riunione")
             if !meeting.markers.isEmpty {
                 DisclosureGroup("Momenti segnati · \(meeting.markers.count)") {
@@ -95,6 +99,7 @@ struct MeetingNotesView: View {
             }
             Text("Gli appunti restano distinti dalle parole pronunciate e vengono inclusi quando generi il report.").font(.caption).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .onDisappear { drafts.commit(meeting.id) }
             .onAppear { focused = model.focusNotes }
             .onChange(of: model.focusNotes) { _, value in focused = value }
     }

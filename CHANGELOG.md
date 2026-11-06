@@ -1,3 +1,10 @@
+# Verbale 0.16.2
+
+- Digitazione delle note isolata dallo stato generale dell’app; salvataggio accorpato dopo 500 ms e completato prima dei lavori sul verbale e dell’uscita. Le bozze restano disponibili dopo navigazione o errore di scrittura, con comando di riprova.
+- Correzioni e nomi degli interlocutori aggiornati subito, con persistenza ed export in background. Nessuna rilettura dell’intero archivio dopo una modifica, una rinomina, una rimozione o il completamento di un lavoro.
+- Export delle revisioni senza riscrivere i documenti invariati né rileggere il contenuto degli allegati già esportati. Allegati nuovi o mancanti seguono l’export completo con verifica.
+- Indice dei riconoscimenti vocali e delle correzioni riutilizzato fra aggiornamenti della stessa trascrizione.
+
 # Verbale 0.16.1
 
 - Navigazione nell’archivio e consultazione di altre riunioni anche durante la registrazione, inclusa la modalità con trascrizione live.

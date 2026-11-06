@@ -1,6 +1,6 @@
 # Verbale
 
-App macOS per registrare e trascrivere riunioni in italiano e inglese, con output in una cartella selezionabile. SwiftUI, Core Audio e Parakeet locale. Nessuna integrazione Brainy. Versione corrente: **0.16.1**.
+App macOS per registrare e trascrivere riunioni in italiano e inglese, con output in una cartella selezionabile. SwiftUI, Core Audio e Parakeet locale. Nessuna integrazione Brainy. Versione corrente: **0.16.2**.
 
 ## Avvio
 

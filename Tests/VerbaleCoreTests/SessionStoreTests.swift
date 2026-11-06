@@ -310,6 +310,7 @@ private final class ReportProtocol: URLProtocol {
         if CommandLine.arguments.contains("--benchmark-exports") {
             do { try PerformanceChecks.benchmarkExports() } catch { print("FAIL benchmark: \(error)"); exit(1) }; return
         }
+        failures += ReviewExportChecks.run()
         failures += RecordingPolicyChecks.run()
         failures += await MeetingWorkChecks.run()
         let tests = SessionStoreTests()
