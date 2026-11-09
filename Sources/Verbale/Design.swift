@@ -8,6 +8,21 @@ enum Palette {
     static let hero = LinearGradient(colors: [Color(red: 0.26, green: 0.22, blue: 0.66), Color(red: 0.35, green: 0.33, blue: 0.83), Color(red: 0.23, green: 0.49, blue: 0.69)], startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 
+struct SoundWaveMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height)
+        }
+        var path = Path()
+        path.move(to: point(0.05, 0.64))
+        path.addCurve(to: point(0.28, 0.40), control1: point(0.14, 0.64), control2: point(0.18, 0.40))
+        path.addCurve(to: point(0.48, 0.76), control1: point(0.36, 0.40), control2: point(0.39, 0.76))
+        path.addCurve(to: point(0.72, 0.12), control1: point(0.58, 0.76), control2: point(0.60, 0.12))
+        path.addCurve(to: point(0.95, 0.64), control1: point(0.82, 0.12), control2: point(0.82, 0.64))
+        return path
+    }
+}
+
 struct Surface<Content: View>: View {
     var padding: CGFloat = 20
     @ViewBuilder var content: Content

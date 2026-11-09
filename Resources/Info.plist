@@ -8,6 +8,8 @@
 	<string>Verbale</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.verbale.app</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon.icns</string>
 	<key>CFBundleName</key>
 	<string>Verbale</string>
 	<key>CFBundlePackageType</key>
