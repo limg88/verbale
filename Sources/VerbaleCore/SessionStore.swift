@@ -3,6 +3,7 @@ import Foundation
 /// One store per process. All mutations are serialized by the UI/processor coordinator.
 public final class SessionStore {
     public let root: URL
+    private let artifactVerification = ArtifactVerification()
     public init(root: URL? = nil) throws {
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Verbale/Sessions", isDirectory: true)
         try FileManager.default.createDirectory(at: self.root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -44,7 +45,7 @@ public final class SessionStore {
         meeting.duration = max(meeting.duration, meeting.chunks.map { $0.start + $0.duration }.max() ?? 0)
         try save(meeting); return meeting
     }
-    public func export(_ input: Meeting) throws -> Meeting {
+    public func export(_ input: Meeting,documentsOnly:Bool = false) throws -> Meeting {
         var meeting = input
         let destination = URL(fileURLWithPath: meeting.destination, isDirectory: true)
         var isDirectory: ObjCBool = false
@@ -58,24 +59,61 @@ public final class SessionStore {
                 throw VerbaleError.message("La cartella esiste già e non è stata creata per questa riunione.")
             }
         }
-        if let bytes = try? Data(contentsOf: target.appendingPathComponent("meeting.json")),
-           let old = try? JSONCoding.decoder().decode(Meeting.self, from: bytes), old.id != meeting.id {
+        let previous=(try? Data(contentsOf:target.appendingPathComponent("meeting.json"))).flatMap {try? JSONCoding.decoder().decode(Meeting.self,from:$0)}
+        if let previous,previous.id != meeting.id {
             throw VerbaleError.message("La cartella appartiene a un'altra riunione. Scegli una nuova destinazione.")
+        }
+        // Review-only exports reuse attachments already committed by a full export.
+        // Added/removed audio or screenshots, missing/corrupt metadata, or a new
+        // destination always take the verified full export path.
+        var reuseArtifacts=documentsOnly && previous.map { old in
+            old.keepAudio==meeting.keepAudio && old.chunks.count==meeting.chunks.count &&
+            zip(old.chunks,meeting.chunks).allSatisfy {$0.id==$1.id && $0.filename==$1.filename && $0.cleanedFilename==$1.cleanedFilename} &&
+            old.screenshots.map(\.filename)==meeting.screenshots.map(\.filename)
+        } == true
+        if reuseArtifacts {
+            let paths=meeting.screenshots.map(\.filename)+(meeting.keepAudio ? meeting.chunks.flatMap {[$0.filename]+($0.cleanedFilename.map{[$0]} ?? [])}:[])
+            reuseArtifacts=paths.allSatisfy {FileManager.default.fileExists(atPath:target.appendingPathComponent($0).path)}
+        }
+        func writeDocument(_ bytes:Data,_ name:String) throws {
+            let path=target.appendingPathComponent(name)
+            if documentsOnly,(try? Data(contentsOf:path))==bytes {return}
+            try bytes.write(to:path,options:.atomic)
         }
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         try meeting.id.uuidString.write(to: owner, atomically: true, encoding: .utf8)
         let segments = meeting.segments.sorted { $0.start == $1.start ? $0.source.rawValue < $1.source.rawValue : $0.start < $1.start }
-        let body = segments.map { "[\(timecode($0.start))] **\(meeting.speakerName(for: $0))**: \($0.text)" }.joined(separator: "\n\n")
+        let body = segments.map { "<a id=\"\($0.anchor)\"></a>\n\n[\(timecode($0.start))] **\(meeting.speakerName(for: $0))**: \($0.text)" }.joined(separator: "\n\n")
+        let markers = meeting.markers.sorted { $0.timestamp < $1.timestamp }.map {
+            "<a id=\"\($0.anchor)\"></a>\n\n- [\(timecode($0.timestamp))] \($0.kind.label)"
+        }.joined(separator: "\n\n")
         let shots = meeting.screenshots.map { "- [\(timecode($0.timestamp))](\($0.filename))" }.joined(separator: "\n")
-        try "# \(meeting.title)\n\n\(body)\n\n\(shots.isEmpty ? "" : "## Screenshot\n\n" + shots)\n".write(to: target.appendingPathComponent("transcript.md"), atomically: true, encoding: .utf8)
-        try JSONCoding.encoder().encode(segments).write(to: target.appendingPathComponent("transcript.json"), options: .atomic)
-        try meeting.notes.write(to: target.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
-        if let report = meeting.report { try report.write(to: target.appendingPathComponent("report.md"), atomically: true, encoding: .utf8) }
-        for shot in meeting.screenshots { try copyArtifact(shot.filename, meeting: meeting, target: target) }
-        if meeting.keepAudio { for chunk in meeting.chunks { try copyArtifact(chunk.filename, meeting: meeting, target: target) } }
+        try writeDocument(Data(("# \(meeting.title)\n\n\(body)\n\n\(markers.isEmpty ? "" : "## Momenti segnati\n\n" + markers + "\n\n")\(shots.isEmpty ? "" : "## Screenshot\n\n" + shots)\n").utf8),"transcript.md")
+        try writeDocument(JSONCoding.encoder().encode(segments),"transcript.json")
+        try writeDocument(Data(meeting.notes.utf8),"notes.md")
+        try writeDocument(JSONCoding.encoder().encode(meeting.markers),"markers.json")
+        try writeDocument(JSONCoding.encoder().encode(meeting.corrections),"corrections.json")
+        if let duplicates = meeting.echoDuplicates, !duplicates.isEmpty {
+            try writeDocument(JSONCoding.encoder().encode(duplicates),"echo-duplicates.json")
+        }
+        if let edits = meeting.transcriptBoundaryEdits, !edits.isEmpty {
+            try writeDocument(JSONCoding.encoder().encode(edits),"transcript-boundaries.json")
+        }
+        let refinement = workspace(meeting.id).appendingPathComponent("transcription-refinement.json")
+        if FileManager.default.fileExists(atPath:refinement.path) {
+            try writeDocument(Data(contentsOf:refinement),"transcription-refinement.json")
+        }
+        if let report = meeting.reportDocument { try writeDocument(Data(report.utf8),"report.md") }
+        if !reuseArtifacts { for shot in meeting.screenshots { try copyArtifact(shot.filename, meeting: meeting, target: target) } }
+        if meeting.keepAudio && !reuseArtifacts {
+            for chunk in meeting.chunks {
+                try copyArtifact(chunk.filename, meeting: meeting, target: target)
+                if let cleaned = chunk.cleanedFilename { try copyArtifact(cleaned, meeting: meeting, target: target) }
+            }
+        }
         meeting.exported = true
         // Commit marker is written last; earlier failures never report successful export.
-        try JSONCoding.encoder().encode(meeting).write(to: target.appendingPathComponent("meeting.json"), options: .atomic)
+        try writeDocument(JSONCoding.encoder().encode(meeting),"meeting.json")
         try save(meeting)
         return meeting
     }
@@ -88,9 +126,10 @@ public final class SessionStore {
         let output = target.appendingPathComponent(filename)
         try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: output.path) {
+            if source.standardizedFileURL == output.standardizedFileURL { return }
             // A retry must not accept a partial copy as a successful export.
             if FileManager.default.fileExists(atPath: source.path) {
-                guard try ModelManager.digest(source) == ModelManager.digest(output) else { throw VerbaleError.message("Allegato preesistente diverso: \(filename). Scegli una nuova cartella.") }
+                try artifactVerification.verify(source,output)
             }
             return
         }
@@ -104,6 +143,19 @@ public final class SessionStore {
         guard meeting.exported, meeting.state == .complete else { return }
         let folder = workspace(meeting.id).appendingPathComponent("audio")
         if FileManager.default.fileExists(atPath: folder.path) { try FileManager.default.removeItem(at: folder) }
+    }
+    /// Reversible archive removal. Exported files are deliberately outside this operation.
+    @discardableResult public func trashWorkspace(_ id: UUID, testingTrash: URL? = nil) throws -> URL {
+        let folder = workspace(id)
+        guard FileManager.default.fileExists(atPath:folder.path) else { throw VerbaleError.message("La riunione non è più presente nell’archivio.") }
+        if let testingTrash {
+            try FileManager.default.createDirectory(at:testingTrash,withIntermediateDirectories:true)
+            let target = testingTrash.appendingPathComponent(id.uuidString+"-"+UUID().uuidString)
+            try FileManager.default.moveItem(at:folder,to:target); return target
+        }
+        var target: NSURL?
+        try FileManager.default.trashItem(at:folder,resultingItemURL:&target)
+        return target as URL? ?? folder
     }
     public func deleteWorkspace(_ id: UUID) throws { try FileManager.default.removeItem(at: workspace(id)) }
 }

@@ -16,6 +16,9 @@ public struct Word: Codable, Sendable {
     public var start: Double
     public var end: Double
     public var conf: Double?
+    public init(w: String, start: Double, end: Double, conf: Double? = nil) {
+        self.w = w; self.start = start; self.end = end; self.conf = conf
+    }
 }
 public struct Segment: Codable, Identifiable, Sendable {
     public var id: UUID = UUID()
@@ -36,6 +39,8 @@ public struct AudioChunk: Codable, Identifiable, Sendable {
     public var sampleCount: Int
     public var filename: String
     public var processed: Bool = false
+    /// Optional for older journals; raw `filename` is never replaced.
+    public var cleanedFilename: String?
     public var duration: Double { Double(sampleCount) / 16000 }
     public init(source: AudioSource, start: Double, sampleCount: Int, filename: String) {
         self.source = source; self.start = start; self.sampleCount = sampleCount; self.filename = filename
@@ -70,6 +75,19 @@ public struct Meeting: Codable, Identifiable, Sendable {
     public var report: String?
     public var reportStatus: String = "Non richiesto"
     public var exported = false
+    // Optional for compatibility with sessions saved before review tools existed.
+    public var review: MeetingReview?
+    public var listeningMode: ListeningMode?
+    public var echoDuplicates: [EchoDuplicate]?
+    /// v2 keeps a sample-count clock across callbacks/chunks and flushes the converter.
+    public var captureTimelineVersion: Int?
+    public var echoProcessingVersion: Int?
+    public var voiceMatches: [VoiceMatch]?
+    public var audioRoute:RecordedAudioRoute?
+    public var transcriptionTiming: TranscriptionTiming?
+    public var resumeAfterTeams: Bool?
+    /// Original ASR hypotheses retained when overlapping windows duplicate a word.
+    public var transcriptBoundaryEdits: [TranscriptBoundaryEdit]?
     public init(title: String, sources: [AudioSource], destination: URL, keepAudio: Bool) {
         self.title = title.isEmpty ? "Riunione" : title
         self.sources = sources; self.destination = destination.path; self.keepAudio = keepAudio

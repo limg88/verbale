@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+project(VerbaleEcho LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 20)
+add_subdirectory(../webrtc-aec3 webrtc)
+target_sources(webrtc_aec3 PRIVATE Bridge.cpp)
+target_link_libraries(webrtc_aec3 PRIVATE "-framework CoreFoundation")
+set_target_properties(webrtc_aec3 PROPERTIES OUTPUT_NAME verbale_aec INSTALL_NAME_DIR "@rpath" BUILD_WITH_INSTALL_NAME_DIR ON)

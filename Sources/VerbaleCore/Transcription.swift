@@ -2,7 +2,7 @@ import Foundation
 import AVFoundation
 import CParakeet
 
-private final class NativeContext {
+final class NativeContext {
     let pointer: OpaquePointer
     init(library: URL, model: URL) throws {
         var error = [CChar](repeating: 0, count: 2048)
@@ -13,7 +13,12 @@ private final class NativeContext {
     func json(_ samples: [Float], operation: Int) throws -> Data {
         guard !samples.isEmpty, samples.count <= Int(Int32.max) else { throw VerbaleError.message("Dimensione audio non valida") }
         let text = samples.withUnsafeBufferPointer { p in
-            operation == 1 ? vb_vad(pointer, p.baseAddress, Int32(p.count)) : operation == 2 ? vb_diarize(pointer, p.baseAddress, Int32(p.count)) : vb_transcribe(pointer, p.baseAddress, Int32(p.count))
+            switch operation {
+            case 1: return vb_vad(pointer,p.baseAddress,Int32(p.count))
+            case 2: return vb_diarize(pointer,p.baseAddress,Int32(p.count))
+            case 3: return vb_vad_refinement(pointer,p.baseAddress,Int32(p.count))
+            default: return vb_transcribe(pointer,p.baseAddress,Int32(p.count))
+            }
         }
         guard let text else { throw VerbaleError.message(String(cString: vb_error(pointer))) }
         defer { vb_free(pointer, text) }
@@ -27,30 +32,37 @@ public actor TranscriptionEngine {
     public init() {}
     public static var defaultLibrary: URL {
         if let path = ProcessInfo.processInfo.environment["VERBALE_LIBRARY"] { return URL(fileURLWithPath: path) }
-        if let folder = Bundle.main.privateFrameworksURL { return folder.appendingPathComponent("libparakeet.dylib") }
+        if let folder = Bundle.main.privateFrameworksURL {
+            let library = folder.appendingPathComponent("libparakeet.dylib")
+            if FileManager.default.fileExists(atPath: library.path) { return library }
+        }
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/parakeet/libparakeet.dylib")
     }
     public func load(asr: URL, vad: URL, diarization: URL? = nil, library: URL = defaultLibrary) throws {
         self.asr = nil; self.vad = nil; self.diarizer = nil
-        self.asr = try NativeContext(library: library, model: asr)
-        self.vad = try NativeContext(library: library, model: vad)
-        if let diarization { diarizer = try NativeContext(library: library, model: diarization) }
+        // Build transactionally: a failed VAD/diarizer load must release ASR too.
+        let loadedASR = try NativeContext(library: library, model: asr)
+        let loadedVAD = try NativeContext(library: library, model: vad)
+        let loadedDiarizer = try diarization.map { try NativeContext(library:library,model:$0) }
+        self.asr = loadedASR; self.vad = loadedVAD; self.diarizer = loadedDiarizer
     }
     public func unload() { asr = nil; vad = nil; diarizer = nil }
     private struct Range: Decodable { var start: Double; var end: Double; var speaker: Int? }
     private struct Regions: Decodable { var segments: [Range] }
     private struct Result: Decodable { var text: String; var words: [Word] }
-    public func transcribe(samples: [Float], source: AudioSource, offset: Double) throws -> [Segment] {
+    public func transcribe(samples: [Float], source: AudioSource, offset: Double, pass:ASRPass = .live) throws -> [Segment] {
         guard let asr, let vad else { throw VerbaleError.message("Motore non caricato") }
         if samples.count < 1600 { return [] }
         let duration = Double(samples.count) / 16000
-        let regions = try JSONDecoder().decode(Regions.self, from: vad.json(samples, operation: 1)).segments
+        let regions = try JSONDecoder().decode(Regions.self, from: vad.json(samples, operation:pass == .refinement ? 3:1)).segments
         var output: [Segment] = []
-        for region in regions {
-            var start = max(0, region.start - 0.15)
-            let end = min(duration, region.end + 0.15)
+        let spans = ASRSegmentation.spans(regions.map { SpeechSpan(start:$0.start,end:$0.end) },duration:duration,pass:pass)
+        for region in spans {
+            try Task.checkCancellation()
+            var start = region.start
+            let end = region.end
             while start < end {
-                let until = min(end, start + 20)
+                let until = min(end, start + (pass == .refinement ? 30:20))
                 let a = min(samples.count, Int(start * 16000)), b = min(samples.count, Int(until * 16000))
                 guard b > a else { break }
                 guard let result = try JSONDecoder().decode([Result].self, from: asr.json(Array(samples[a..<b]), operation: 0)).first else { throw VerbaleError.message("Risposta ASR vuota") }
@@ -64,28 +76,12 @@ public actor TranscriptionEngine {
         }
         return output
     }
-    public func diarize(samples: [Float], segments: [Segment], offset: Double = 0) throws -> [Segment] {
-        guard let diarizer else { return segments }
+    public func diarize(samples: [Float], segments: [Segment], offset: Double = 0) throws -> DiarizationResult {
+        guard let diarizer else { return DiarizationResult(segments: segments, replacements: Dictionary(uniqueKeysWithValues: segments.map { ($0.id, [$0.id]) })) }
         let ranges = try JSONDecoder().decode(Regions.self, from: diarizer.json(samples, operation: 2)).segments
-        return segments.flatMap { segment -> [Segment] in
-            guard segment.source == .system else { return [segment] }
-            // Split at word boundaries; speaker identities are scoped to this diarization call.
-            var groups: [Segment] = []
-            for word in segment.words {
-                let match = ranges.max { a, b in
-                    overlap(word.start - offset, word.end - offset, a.start, a.end) < overlap(word.start - offset, word.end - offset, b.start, b.end)
-                }
-                let speaker = match.flatMap { overlap(word.start - offset, word.end - offset, $0.start, $0.end) > 0 ? $0.speaker : nil }
-                let key = speaker.map { "Interlocutore \($0 + 1)" }
-                if let last = groups.last, last.speakerID == key {
-                    groups[groups.count - 1].text += " " + word.w; groups[groups.count - 1].end = word.end; groups[groups.count - 1].words.append(word)
-                } else { groups.append(Segment(source: .system, start: word.start, end: word.end, text: word.w, speakerID: key, words: [word])) }
-            }
-            return groups.isEmpty ? [segment] : groups
-        }
+        return SpeakerDiarization.split(segments, regions: ranges.map { SpeakerRegion(start: $0.start, end: $0.end, speaker: $0.speaker) }, offset: offset)
     }
 }
-private func overlap(_ a: Double, _ b: Double, _ c: Double, _ d: Double) -> Double { max(0, min(b, d) - max(a, c)) }
 
 public enum AudioFiles {
     public static func samples(_ url: URL) throws -> [Float] {

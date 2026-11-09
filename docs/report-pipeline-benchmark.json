@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-05",
+  "source": "synthetic meetings and URLProtocol fake gateway, no real inference",
+  "baseline": "workspace Reports.swift, ReportPrompt.swift and ReportTransport.swift saved before implementation",
+  "excludes": "two health/models requests per invocation",
+  "latency": {"kind": "simulation", "formula": "2 * requests + requested_tokens / 1000", "unit": "seconds"},
+  "fixtures": [
+    {"name": "short", "before": {"requests": 2, "requested_tokens": 12000, "repeated_steps": 1, "simulated_seconds": 16, "budgets": [4000,8000]}, "after": {"requests": 1, "requested_tokens": 6000, "repeated_steps": 0, "simulated_seconds": 8, "budgets": [6000]}},
+    {"name": "long", "before": {"requests": 39, "requested_tokens": 212800, "repeated_steps": 26, "simulated_seconds": 290.8, "budgets": [2200,4400,8800,2200,4400,8800,2200,4400,8800,2200,4400,8800,2200,4400,8800,2200,4400,8800,2200,4400,8800,2200,4400,8800,2200,4400,8800,2200,4400,8800,2200,4400,8800,2200,4400,8800,4000,8000,16000]}, "after": {"requests": 10, "requested_tokens": 79344, "repeated_steps": 1, "simulated_seconds": 99.344, "budgets": [7168,7168,7168,7168,7168,7168,7168,7168,6000,16000]}}
+  ]
+}
