@@ -100,7 +100,16 @@ struct DashboardView: View {
     }
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Label("Verbale", systemImage: "waveform").font(.system(size: 22, weight: .semibold)).foregroundStyle(Palette.accent).padding(.vertical, 12)
+            Label {
+                Text("Verbale")
+            } icon: {
+                Image(nsImage: NSApplication.shared.applicationIconImage)
+                    .renderingMode(.original)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 30, height: 30)
+                    .accessibilityHidden(true)
+            }.font(.system(size: 22, weight: .semibold)).foregroundStyle(Palette.accent).padding(.vertical, 12)
             VStack(spacing: 4) {
                 navigation("session", "Riunione", "waveform")
                 navigation("archive", "Archivio", "tray.full")
