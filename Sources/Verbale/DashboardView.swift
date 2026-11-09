@@ -103,11 +103,9 @@ struct DashboardView: View {
             Label {
                 Text("Verbale")
             } icon: {
-                Image(nsImage: NSApplication.shared.applicationIconImage)
-                    .renderingMode(.original)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 30, height: 30)
+                SoundWaveMark()
+                    .stroke(Palette.mint, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    .frame(width: 30, height: 22)
                     .accessibilityHidden(true)
             }.font(.system(size: 22, weight: .semibold)).foregroundStyle(Palette.accent).padding(.vertical, 12)
             VStack(spacing: 4) {
