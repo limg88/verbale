@@ -38,6 +38,13 @@ enum CaptureLifecycleChecks {
         let mic = AudioChunk(source:.microphone,start:0,sampleCount:80000,filename:"mic.caf")
         try require(!RecordingReadiness.missingMicrophone([.microphone,.system],chunks:[mic],elapsed:300),"silent meeting stops valid microphone capture")
         try require(RecordingReadiness.missingMicrophone([.microphone],chunks:[],elapsed:15),"genuine microphone failure not detected")
+        try require(RecordingReadiness.systemWarning([.microphone,.system],chunks:[mic],elapsed:29) == nil,"system warning shown before grace period")
+        try require(RecordingReadiness.systemWarning([.microphone,.system],chunks:[mic],elapsed:30) != nil,"missing system source not surfaced")
+        let system = AudioChunk(source:.system,start:0,sampleCount:80000,filename:"system.caf")
+        try require(RecordingReadiness.systemWarning([.microphone,.system],chunks:[mic,system],elapsed:300) == nil,"received source reported missing")
+        try require(RecordingReadiness.missingSourceWarnings([.microphone,.system],chunks:[mic]).count == 1,"incomplete recording has no durable warning")
+        try require(RecordingReadiness.missingSourceWarnings([.microphone],chunks:[mic]).isEmpty,"disabled system source reported missing")
+        try require(RecordingReadiness.missingSourceWarnings([.system],chunks:[],segments:[Segment(source:.system,start:0,end:1,text:"Importato")]).isEmpty,"legacy transcript without chunks reported as capture failure")
     }
     static func run() async -> Int {
         var failed = 0

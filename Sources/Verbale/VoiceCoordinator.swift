@@ -9,6 +9,7 @@ struct VoiceEnrollmentRequest: Identifiable {
     let segment: Segment
     let clips: [VoiceClip]
     let initialName: String
+    var speakerGroupID: String? = nil
 }
 
 extension AppModel {
@@ -16,13 +17,20 @@ extension AppModel {
         VoiceAudio(workspace: store.workspace(meeting.id), exported: URL(fileURLWithPath: meeting.destination).appendingPathComponent(meeting.folderName))
     }
     var voiceModelsReady: Bool { installed.isSuperset(of: ["voice", "diarization"]) }
-    func beginVoiceEnrollment(_ segment: Segment) {
+    func beginVoiceEnrollment(_ segment: Segment, speakerGroupID: String? = nil) {
         guard !sessionLocked, let meeting = current else { return }
         guard voiceStore != nil else { error = "L’archivio dei profili vocali non è disponibile."; return }
         guard installed.contains("voice") else { tab = "models"; error = "Scarica il modello opzionale Profili vocali, poi torna al passaggio da ricordare."; return }
-        let clips = VoiceClips.candidates(meeting: meeting, speakerID: segment.speakerID, source: segment.source, selected: segment.id)
+        let group = speakerGroupID.flatMap { key in meeting.speakerGroups.first { $0.speakerIDs.contains(key) } }
+        let clips: [VoiceClip]
+        if let group {
+            let ids = Set(meeting.segments.filter { $0.speakerID.map(group.speakerIDs.contains) == true }.map(\.id))
+            clips = Array(meeting.sources.flatMap { source in
+                VoiceClips.candidates(meeting:meeting,speakerID:nil,source:source,selected:segment.id,segmentIDs:ids)
+            }.prefix(16))
+        } else { clips = VoiceClips.candidates(meeting: meeting, speakerID: segment.speakerID, source: segment.source, selected: segment.id) }
         guard clips.count >= 2 else { error = "Servono almeno due campioni distinti di almeno 3 secondi. Separa prima gli interlocutori o scegli un passaggio più lungo."; return }
-        voiceEnrollment = VoiceEnrollmentRequest(meeting: meeting, segment: segment, clips: clips, initialName: segment.speakerID.flatMap { meeting.speakers[$0] } ?? "")
+        voiceEnrollment = VoiceEnrollmentRequest(meeting: meeting, segment: segment, clips: clips, initialName: segment.speakerID.flatMap { meeting.speakers[$0] } ?? "", speakerGroupID:speakerGroupID)
         error = nil
         voiceClipQualities = [:]; voiceQualityTask?.cancel()
         guard let request = voiceEnrollment else { return }
@@ -80,21 +88,27 @@ extension AppModel {
                 voiceProfiles = voiceStore.profiles
                 automaticVoices = enableAutomatic
                 voiceEnrollment = nil
-                let assigned = applyVoiceProfileName(profile, meetingID: request.meeting.id, segmentID: request.segment.id)
+                let assigned = applyVoiceProfileName(profile, meetingID: request.meeting.id, segmentID: request.segment.id,speakerGroupID:request.speakerGroupID)
                 status = "Profilo di \(profile.name) salvato · \(profile.samples.count) campioni" + (assigned ? " · nome assegnato nella trascrizione" : " · assegnazione del nome da riprovare")
                 if profile.needsMatchConfirmation { status += " · campioni variabili: riconoscimenti da confermare" }
                 if enableAutomatic && !voiceModelsReady { status += " · prepara anche il modello Interlocutori" }
             } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
         }
     }
-    @discardableResult func applyVoiceProfileName(_ profile: VoiceProfile, meetingID: UUID, segmentID: UUID) -> Bool {
+    @discardableResult func applyVoiceProfileName(_ profile: VoiceProfile, meetingID: UUID, segmentID: UUID, speakerGroupID: String? = nil) -> Bool {
         guard var meeting = current, meeting.id == meetingID else { return false }
-        do { try meeting.assignVoiceName(profile.name, to: segmentID); guard saveReview(meeting) else { return false }; discardStaleSpeakerAudit(for:meeting); return true }
+        do {
+            if let speakerGroupID { try meeting.renameSpeakerPerson(speakerGroupID,to:profile.name) }
+            else { try meeting.assignVoiceName(profile.name, to: segmentID) }
+            guard saveReview(meeting) else { return false }
+            discardStaleSpeakerAudit(for:meeting)
+            return true
+        }
         catch { self.error = error.localizedDescription; return false }
     }
-    func assignSavedVoice(_ profileID: UUID, segmentID: UUID) {
+    func assignSavedVoice(_ profileID: UUID, segmentID: UUID, speakerGroupID: String? = nil) {
         guard !sessionLocked, let meeting = current, let profile = voiceProfiles.first(where: { $0.id == profileID }) else { return }
-        if applyVoiceProfileName(profile, meetingID: meeting.id, segmentID: segmentID) { status = "Nome di \(profile.name) assegnato nella trascrizione" }
+        if applyVoiceProfileName(profile, meetingID: meeting.id, segmentID: segmentID,speakerGroupID:speakerGroupID) { status = "Nome di \(profile.name) assegnato nella trascrizione" }
     }
     func cancelVoiceAnalysis() { voiceTask?.cancel() }
     func startSpeakerSeparation() {

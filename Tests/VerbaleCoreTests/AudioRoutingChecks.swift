@@ -24,6 +24,15 @@ enum AudioRoutingChecks {
                 let route = try AudioRouteSelection.resolve("automatic",input:false,snapshot:ambiguous)
                 try VoiceChecks.require(route.device.uid == built.uid && route.explanation.contains("Più dispositivi"),"ambiguous route guessed silently")
             }),
+            ("different active Teams output is visible without overriding manual choice", {
+                let s = AudioRouteSnapshot(devices:[built,headset],defaultInput:1,defaultOutput:1,activeTeamsOutput:[2])
+                let manual = try AudioRouteSelection.resolve(built.choice,input:false,snapshot:s)
+                let correct = try AudioRouteSelection.resolve(headset.choice,input:false,snapshot:s)
+                try VoiceChecks.require(AudioRouteSelection.outputMismatchWarning(manual,snapshot:s) != nil,"mismatched output not reported")
+                try VoiceChecks.require(AudioRouteSelection.outputMismatchWarning(correct,snapshot:s) == nil,"correct output reported as mismatched")
+                var unknown = s; unknown.activeTeamsOutput = []
+                try VoiceChecks.require(AudioRouteSelection.outputMismatchWarning(manual,snapshot:unknown) == nil,"unknown route treated as wrong")
+            }),
             ("manual and Mac selections override Teams", {
                 let s = AudioRouteSnapshot(devices:[built,headset],defaultInput:1,defaultOutput:1,teamsInput:[2],teamsOutput:[2])
                 let manual = try AudioRouteSelection.resolve(built.choice,input:true,snapshot:s)

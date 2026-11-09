@@ -497,6 +497,7 @@ import VerbaleCore
             let selectedOutput = sources.contains(.system) ? try AudioRouteSelection.resolve(outputChoice,input:false,snapshot:routeSnapshot):nil
             var meeting = Meeting(title: title, sources: sources, destination: destination, keepAudio: keepAudio)
             meeting.audioRoute = RecordedAudioRoute(input:selectedInput,output:selectedOutput)
+            if let warning = AudioRouteSelection.outputMismatchWarning(selectedOutput,snapshot:routeSnapshot) { meeting.warnings.append(warning) }
             meeting.transcriptionTiming = timing
             exportCadence = RecordingExportCadence()
             meeting.keepRecovery = keepRecovery
@@ -539,13 +540,17 @@ import VerbaleCore
             await echoCancellation.unload()
         }
     }
+    var captureWarning: String? {
+        guard isRecording, let meeting = recording else { return nil }
+        return RecordingReadiness.systemWarning(meeting.sources,chunks:meeting.chunks,elapsed:elapsed) ?? meeting.warnings.first { $0.hasPrefix("L’uscita registrata") }
+    }
     private func tick() {
         guard isRecording, let current=recording else { return }
         elapsed = Date().timeIntervalSince(current.started)
         if RecordingReadiness.missingMicrophone(current.sources,chunks:current.chunks,elapsed:elapsed) {
             error = "Nessun buffer ricevuto dal microfono. Verifica il dispositivo e il permesso Microfono."; Task { await stop() }
         } else if RecordingReadiness.waitingForSystem(current.sources,chunks:current.chunks) {
-            status = "Registrazione attiva · in attesa dell’audio di sistema"
+            status = captureWarning ?? "Registrazione attiva · in attesa dell’audio di sistema"
         } else { status = "Registrazione in corso" }
     }
 
@@ -653,6 +658,7 @@ import VerbaleCore
             // Journal replay also accounts for callbacks enqueued just before stop.
             meeting = (try? store.recover(meeting)) ?? meeting
             meeting.duration = max(meeting.duration,stoppedAt.timeIntervalSince(meeting.started))
+            for warning in RecordingReadiness.missingSourceWarnings(meeting.sources,chunks:meeting.chunks) where !meeting.warnings.contains(warning) { meeting.warnings.append(warning) }
             meeting.state = .processing;installRecording(meeting);try? store.save(meeting)
         }
         processing?.cancel()
@@ -902,7 +908,7 @@ import VerbaleCore
                 var latest = try disk.read(meeting.id)
                 try latest.changeTitle(value); try disk.save(latest)
                 var issue: String?
-                do { latest = try disk.export(latest) } catch { issue = error.localizedDescription }
+                do { latest = try disk.export(latest,documentsOnly:true) } catch { issue = error.localizedDescription }
                 return (latest,issue)
             }.value
             if let i=meetings.firstIndex(where:{$0.id==meeting.id}) {meetings[i]=result.0}
