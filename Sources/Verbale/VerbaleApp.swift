@@ -201,6 +201,8 @@ import VerbaleCore
                     }
                     do { checks.merge(try await model.checkBackgroundWork(window:window,root:URL(fileURLWithPath:root))) { _,new in new } }
                     catch { checks["background work UI checks complete"] = false }
+                    do { checks.merge(try await model.checkWorkAlertDismissal()) { _,new in new } }
+                    catch { checks["work alert dismissal UI checks complete"] = false }
                     do { checks.merge(try await model.checkRecordingNavigation(window:window,root:URL(fileURLWithPath:root))) { _,new in new } }
                     catch {checks["recording navigation checks complete"] = false}
                     model.newMeeting()

@@ -18,6 +18,8 @@ public struct MeetingWorkJob:Codable,Equatable,Identifiable,Sendable {
     public var report:ReportWorkSettings?
     public var automaticVoices = true
     public var transcriptionDependency:UUID?
+    public var failureDismissedAt:Date?
+    public var showsBanner:Bool { state.pending || (state == .failed && failureDismissedAt == nil) }
     public init(meetingID:UUID,title:String,kind:MeetingWorkKind,report:ReportWorkSettings?=nil) { self.meetingID=meetingID;self.title=title;self.kind=kind;self.report=report }
 }
 /// One serial lane per kind. Jobs never hold or mutate the UI's selection.
@@ -66,16 +68,27 @@ public actor MeetingWorkQueue {
         guard jobs != lastPublished else{return}
         var persisted=false
         do {
-            guard canPersist else {throw VerbaleError.message("Impossibile conservare una copia della vecchia coda; riprova dopo il riavvio.")}
             for i in jobs.indices where jobs[i].error?.hasPrefix("La coda non è stata salvata sul disco:")==true {jobs[i].error=nil}
-            try FileManager.default.createDirectory(at:file.deletingLastPathComponent(),withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
-            try JSONCoding.encoder().encode(jobs).write(to:file,options:.atomic)
-            try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:file.path)
+            try persist(jobs)
             persisted=true
         } catch {
             for i in jobs.indices where jobs[i].state.pending { jobs[i].error="La coda non è stata salvata sul disco: "+error.localizedDescription }
         }
         lastPublished=persisted ? jobs:nil;observer?(jobs)
+    }
+    private func persist(_ snapshot:[MeetingWorkJob]) throws {
+        guard canPersist else {throw VerbaleError.message("Impossibile conservare una copia della vecchia coda; riprova dopo il riavvio.")}
+        try FileManager.default.createDirectory(at:file.deletingLastPathComponent(),withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
+        try JSONCoding.encoder().encode(snapshot).write(to:file,options:.atomic)
+        try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:file.path)
+    }
+    public func dismissFailure(_ id:UUID) throws {
+        guard let i=jobs.firstIndex(where:{$0.id==id}),jobs[i].state == .failed,jobs[i].failureDismissedAt == nil else{return}
+        var updated=jobs
+        updated[i].failureDismissedAt=Date()
+        // Hide only after the acknowledgement is durable; retain the failed job and its diagnostics.
+        try persist(updated)
+        jobs=updated;lastPublished=jobs;observer?(jobs)
     }
     public func restorationWarning()->String? {restoreIssue}
     public func snapshot()->[MeetingWorkJob] { jobs }
@@ -83,6 +96,7 @@ public actor MeetingWorkQueue {
     @discardableResult public func enqueue(_ job:MeetingWorkJob)->UUID {
         if let old=jobs.first(where:{$0.meetingID==job.meetingID && $0.kind==job.kind && $0.state.pending}) { return old.id }
         var submitted=job
+        submitted.failureDismissedAt=nil
         if job.kind == .report { submitted.transcriptionDependency=jobs.last(where:{$0.meetingID==job.meetingID && $0.kind == .transcription && $0.state.pending})?.id }
         jobs.append(submitted);publish();Task { await tick() };return job.id
     }
