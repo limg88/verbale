@@ -7,6 +7,7 @@ import plistlib
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 PIN = "2eac2e77d9c7ef8899f7a86a46e693ac5ac1a5cd"
@@ -16,6 +17,19 @@ GGML = "e705c5fed490514458bdd2eaddc43bd098fcce9b"
 def run(args, **kwargs):
     print("+", " ".join(str(x) for x in args), flush=True)
     return subprocess.run([str(x) for x in args], cwd=ROOT, check=True, **kwargs)
+
+def build_icon(destination):
+    """Generate the complete macOS icon set from the approved PNG master."""
+    with tempfile.TemporaryDirectory(prefix="app-icon-", dir=ROOT / ".build") as temporary:
+        iconset = Path(temporary) / "AppIcon.iconset"
+        iconset.mkdir()
+        for size in (16, 32, 128, 256, 512):
+            for scale in (1, 2):
+                pixels = size * scale
+                suffix = "@2x" if scale == 2 else ""
+                run(["sips", "-z", pixels, pixels, ROOT / "Resources/AppIcon.png",
+                     "--out", iconset / f"icon_{size}x{size}{suffix}.png"], stdout=subprocess.DEVNULL)
+        run(["iconutil", "--convert", "icns", "--output", destination, iconset])
 
 def main():
     parser = argparse.ArgumentParser()
@@ -78,6 +92,7 @@ def main():
         (contents / directory).mkdir(parents=True)
     shutil.copy2(binary_dir / "Verbale", contents / "MacOS/Verbale")
     shutil.copy2(ROOT / "Resources/Info.plist", contents / "Info.plist")
+    build_icon(contents / "Resources/AppIcon.icns")
     if args.preview:
         info = plistlib.loads((contents / "Info.plist").read_bytes())
         info["CFBundleIdentifier"] = "io.verbale.preview"

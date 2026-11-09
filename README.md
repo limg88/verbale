@@ -117,6 +117,8 @@ python3 scripts/build.py --skip-native --dmg
 
 Lo script recupera il runtime e il submodule ggml fissati se assenti; non installa strumenti globali e non aggiorna automaticamente le versioni. Il repository GitHub è privato e richiede un accesso autorizzato per il clone.
 
+L’icona dell’app è la V con onda sonora verde menta. Il master è `Resources/AppIcon.png`; la build genera `AppIcon.icns` con tutte le risoluzioni macOS tramite `sips` e `iconutil` e lo include anche nel pacchetto Preview.
+
 - Runtime: `2eac2e77d9c7ef8899f7a86a46e693ac5ac1a5cd`
 - ggml: `e705c5fed490514458bdd2eaddc43bd098fcce9b`
 - Catalogo modelli: revisione Hugging Face `07a08a3a405d20c5434b9a1442f6e6cf571f57ad`, con dimensioni e SHA-256 in `Sources/VerbaleCore/Resources/models.json`.
