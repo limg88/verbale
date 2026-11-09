@@ -390,6 +390,8 @@ Se Teams segnala una chiamata mentre viene elaborata una registrazione in modali
 
 Trascrizioni e report hanno due code persistenti separate: un lavoro per tipo alla volta. Puoi aprire altre riunioni e aggiungere nuove richieste; la barra delle attività mostra titolo, avanzamento, apertura e sospensione. Un report accodato per una riunione in trascrizione attende la sua conclusione. Le impostazioni del report vengono fissate alla richiesta; nessun token viene scritto nel manifest della coda.
 
+La **X** su un’attività fallita chiude quell’avviso anche dopo il riavvio, conservandone lo stato e la diagnostica. Un nuovo tentativo fallito mostra un nuovo avviso. Se la chiusura non può essere salvata, l’avviso rimane visibile e viene segnalato l’errore di salvataggio.
+
 L’elaborazione non usa la riunione selezionata come spazio di lavoro. Durante un’attività i contenuti della sua riunione sono protetti; gli altri rimangono consultabili e modificabili. **Sospendi** conserva i risultati già salvati; puoi riprendere con **Riprendi trascrizione** o **Genera report**. Alla chiusura dell’app i lavori non completati restano in coda per il prossimo avvio. Se Teams è in chiamata, lo stato non è verificabile o parte una registrazione, la trascrizione si mette in attesa senza bloccare la navigazione. I report hanno una coda indipendente.
 
 Le conferme delle voci aggiornano subito il testo; salvataggio ed esportazione avvengono fuori dal thread dell’interfaccia. Click ravvicinati vengono raggruppati. In caso di mancato salvataggio locale, l’app ripristina i dati salvati e mostra l’errore; un problema di sola esportazione conserva le conferme nell’archivio.

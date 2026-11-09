@@ -143,8 +143,7 @@ import VerbaleCore
     let workQueue:MeetingWorkQueue
     private var workPreviewGeneration:UUID?
     @Published var workJobs:[MeetingWorkJob] = []
-    @Published var dismissedWorkErrors:Set<UUID> = []
-    var visibleWork:[MeetingWorkJob] { workJobs.filter{$0.state.pending || ($0.state == .failed && !dismissedWorkErrors.contains($0.id))} }
+    var visibleWork:[MeetingWorkJob] { workJobs.filter(\.showsBanner) }
     @Published var savingVoiceMeetings:Set<UUID> = []
     @Published var pendingWorkSubmissions:Set<UUID> = []
     private var voiceSaveSnapshots:[UUID:Meeting] = [:]
@@ -160,7 +159,14 @@ import VerbaleCore
     var hasUnsavedEdits:Bool { !noteDrafts.values.isEmpty }
     func cancelQuitAfterSaveFailure() {shuttingDown=false;if Bundle.main.object(forInfoDictionaryKey:"VerbalePreviewDataRoot") == nil {let call=automaticCallID,attempted=automaticAttempted;configureTeamsAutomation();automaticCallID=call;automaticAttempted=attempted};error="Ci sono modifiche non salvate. Riprova il salvataggio prima di uscire."}
     func cancelWork(_ id:UUID) { Task { await workQueue.cancel(id) } }
-    func dismissWorkError(_ id:UUID) { dismissedWorkErrors.insert(id) }
+    func dismissWorkError(_ id:UUID) {
+        Task {
+            do {
+                try await workQueue.dismissFailure(id)
+                acceptWork(await workQueue.snapshot())
+            } catch { self.error="Impossibile salvare la chiusura dell’avviso: "+error.localizedDescription }
+        }
+    }
     private func acceptWork(_ jobs:[MeetingWorkJob]) {
         let old=workJobs;workJobs=jobs
         let settled=jobs.filter { job in !job.state.pending && old.first(where:{$0.id==job.id})?.state.pending == true }
@@ -1077,6 +1083,40 @@ extension AppModel {
 
 
 extension AppModel {
+    func checkWorkAlertDismissal() async throws -> [String:Bool] {
+        guard Bundle.main.object(forInfoDictionaryKey:"VerbalePreviewDataRoot") != nil else{return [:]}
+        let meetingID=UUID()
+        // Missing report settings fail before reading any meeting or contacting a backend.
+        let job=MeetingWorkJob(meetingID:meetingID,title:"Avviso dimostrativo",kind:.report)
+        _=await workQueue.enqueue(job)
+        for _ in 0..<300 {
+            if await workQueue.snapshot().first(where:{$0.id==job.id})?.state == .failed {break}
+            try await Task.sleep(for:.milliseconds(10))
+        }
+        acceptWork(await workQueue.snapshot())
+        var checks=["failed work alert is visible before dismissal":visibleWork.contains{$0.id==job.id}]
+        dismissWorkError(job.id)
+        for _ in 0..<300 {
+            if !visibleWork.contains(where:{$0.id==job.id}) {break}
+            try await Task.sleep(for:.milliseconds(10))
+        }
+        checks["close action hides failed work alert"] = !visibleWork.contains{$0.id==job.id}
+        let restored=try MeetingWorkQueue(file:store.root.deletingLastPathComponent().appendingPathComponent("work-queue.json"),execute:{_,_ in})
+        let saved=restored.initialSnapshot.first{$0.id==job.id}
+        checks["closed work alert stays hidden after queue reload"] = saved?.showsBanner == false && saved?.state == .failed && saved?.error != nil
+        let retry=MeetingWorkJob(meetingID:meetingID,title:job.title,kind:.report)
+        _=await workQueue.enqueue(retry)
+        for _ in 0..<300 {
+            if await workQueue.snapshot().first(where:{$0.id==retry.id})?.state == .failed {break}
+            try await Task.sleep(for:.milliseconds(10))
+        }
+        acceptWork(await workQueue.snapshot())
+        checks["new failure for same meeting remains visible"] = visibleWork.contains{$0.id==retry.id} && !visibleWork.contains{$0.id==job.id}
+        await workQueue.forget(meetingID)
+        acceptWork(await workQueue.snapshot())
+        return checks
+    }
+
     func checkBackgroundWork(window:NSWindow,root:URL) async throws -> [String:Bool] {
         guard Bundle.main.object(forInfoDictionaryKey:"VerbalePreviewDataRoot") != nil else{return [:]}
         let old=current,oldJobs=workJobs,oldMeetings=meetings,oldTab=tab,oldSection=meetingSection

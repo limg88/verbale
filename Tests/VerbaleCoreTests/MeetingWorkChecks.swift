@@ -124,6 +124,62 @@ enum MeetingWorkChecks {
             await restored.shutdown();print("PASS work queue graceful shutdown, persistence, restart and queued cancellation")
         } catch {failures+=1;print("FAIL work queue restart: \(error)")}
         do {
+            let file=root.appendingPathComponent("dismissed-errors.json")
+            var report=MeetingWorkJob(meetingID:UUID(),title:"Report precedente",kind:.report)
+            report.state = .failed;report.error="Risposta vuota · richiesta precedente"
+            var transcription=MeetingWorkJob(meetingID:UUID(),title:"Trascrizione precedente",kind:.transcription)
+            transcription.state = .failed;transcription.error="Errore trascrizione precedente"
+            var legacy=try JSONSerialization.jsonObject(with:JSONCoding.encoder().encode([report,transcription])) as! [[String:Any]]
+            for i in legacy.indices {legacy[i].removeValue(forKey:"failureDismissedAt")}
+            try JSONSerialization.data(withJSONObject:legacy).write(to:file)
+            let queue=try MeetingWorkQueue(file:file,probe:{.active},execute:{_,_ in throw VerbaleError.message("Nuovo errore")})
+            try check(queue.initialSnapshot.allSatisfy(\.showsBanner),"avvisi delle vecchie code nascosti senza conferma")
+            try await queue.dismissFailure(report.id)
+            let first=await queue.snapshot()
+            try check(!first[0].showsBanner && first[1].showsBanner,"chiusura estesa ad altri avvisi")
+            try await queue.dismissFailure(transcription.id)
+            try await queue.dismissFailure(report.id)
+            let dismissed=await queue.snapshot()
+            try check(dismissed.allSatisfy{$0.state == .failed && !$0.showsBanner},"chiusura cambia lo stato del lavoro")
+            try check(dismissed.map(\.error)==[report.error,transcription.error],"diagnostica cancellata")
+            await queue.shutdown()
+            let restored=try MeetingWorkQueue(file:file,probe:{.active},execute:{_,_ in throw VerbaleError.message("Nuovo errore")})
+            try check(restored.initialSnapshot.map(\.id)==dismissed.map(\.id) && restored.initialSnapshot.allSatisfy{$0.failureDismissedAt != nil && $0.state == .failed && !$0.showsBanner},"chiusura persa al riavvio")
+            await restored.start(observe:{_ in})
+            let retry=MeetingWorkJob(meetingID:report.meetingID,title:report.title,kind:.report)
+            _=await restored.enqueue(retry)
+            try await wait(restored,{$0.last?.state == .failed})
+            let retried=await restored.snapshot()
+            try check(retried.last?.showsBanner == true && retried.prefix(2).allSatisfy{!$0.showsBanner},"nuovo errore nascosto dalla chiusura precedente")
+            let pending=MeetingWorkJob(meetingID:UUID(),title:"Attività in attesa",kind:.transcription)
+            _=await restored.enqueue(pending)
+            try await restored.dismissFailure(pending.id)
+            let active=await restored.snapshot().last!
+            try check(active.state.pending && active.showsBanner && active.failureDismissedAt == nil,"chiusura nasconde un lavoro ancora attivo")
+            await restored.shutdown()
+            let permissions=(try FileManager.default.attributesOfItem(atPath:file.path)[.posixPermissions] as? NSNumber)?.intValue
+            try check(permissions==0o600,"permessi della chiusura persistita")
+            print("PASS work alert dismissal survives restart, preserves legacy diagnostics and exposes new failures")
+        } catch {failures+=1;print("FAIL work alert dismissal: \(error)")}
+        do {
+            let folder=root.appendingPathComponent("dismiss-save-failure"),file=folder.appendingPathComponent("queue.json")
+            try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+            var job=MeetingWorkJob(meetingID:UUID(),title:"Avviso non salvabile",kind:.report)
+            job.state = .failed;job.error="Errore da conservare"
+            try JSONCoding.encoder().encode([job]).write(to:file)
+            let queue=try MeetingWorkQueue(file:file,execute:{_,_ in})
+            try FileManager.default.removeItem(at:folder)
+            let blocker=Data("destinazione non disponibile".utf8)
+            try blocker.write(to:folder)
+            var rejected=false
+            do {try await queue.dismissFailure(job.id)} catch {rejected=true}
+            try check(rejected,"errore di salvataggio ignorato")
+            let unchanged=await queue.snapshot()
+            try check(unchanged==[job] && unchanged[0].showsBanner,"chiusura applicata nonostante il mancato salvataggio")
+            try check(try Data(contentsOf:folder)==blocker,"destinazione sovrascritta")
+            print("PASS work alert dismissal reports failed persistence and keeps the warning visible")
+        } catch {failures+=1;print("FAIL work alert dismissal persistence failure: \(error)")}
+        do {
             let file=root.appendingPathComponent("corrupt.json")
             try Data("{invalid".utf8).write(to:file)
             let q=try MeetingWorkQueue(file:file,probe:{.inactive},execute:{_,_ in})
