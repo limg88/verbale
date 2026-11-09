@@ -14,7 +14,7 @@ import VerbaleCore
             if model.teamsAutoEnabled { Text(model.teamsStatus) }
             if model.workJobs.contains(where:{$0.state.pending}) { Text("Attività in coda o in corso: \(model.workJobs.filter{$0.state.pending}.count)") }
             if model.waitingTranscriptionID != nil { Text("Trascrizione in attesa della fine della chiamata Teams") }
-            if let error = model.exportError ?? model.error {
+            if let error = model.captureWarning ?? model.exportError ?? model.error {
                 Text("Attenzione: " + error)
                 Button("Apri dettagli") { model.showMainWindow() }
             }
@@ -506,6 +506,23 @@ import VerbaleCore
             await model.flushVoiceSaves()
             let saved = try model.store.read(fixture.id)
             checks["person rename persists across all underlying speaker slots"] = renamed && (0..<6).allSatisfy { saved.speakers["group-\($0)"] == "Nome aggiornato" } && saved.speakerGroups.count == 2
+            let voiceStore = try VoiceProfileStore(directory:folder.appendingPathComponent("profiles"))
+            let clip = VoiceClip(meetingID:fixture.id,source:.system,start:10,end:14,text:"Campione sintetico")
+            let profile = try voiceStore.enroll(name:"Nome dal profilo",samples:[VoiceSample(clip:clip,embedding:[1,0,0]),VoiceSample(clip:VoiceClip(meetingID:fixture.id,source:.system,start:20,end:24,text:"Altro campione"),embedding:[1,0,0])],encoder:VoiceEncoderID(identity:"fixture",family:"demo",dimension:3))
+            let priorStore = model.voiceStore, priorInstalled = model.installed
+            model.voiceStore = voiceStore; model.installed.insert("voice")
+            model.beginVoiceEnrollment(fixture.segments[4],speakerGroupID:"group-4")
+            let request = model.voiceEnrollment
+            checks["speaker list enrollment includes grouped sources and excludes other people"] = request?.speakerGroupID == "group-4" && Set(request?.clips.map(\.source) ?? []) == Set([AudioSource.microphone,.system]) && request?.clips.contains(where:{$0.start >= 70}) == false
+            model.cancelVoiceQuality();model.voiceEnrollment = nil
+            model.voiceStore = priorStore;model.installed = priorInstalled
+            let applied = model.applyVoiceProfileName(profile,meetingID:fixture.id,segmentID:fixture.segments[4].id,speakerGroupID:"group-4")
+            await model.flushVoiceSaves()
+            let grouped = try model.store.read(fixture.id)
+            checks["speaker list profile assignment covers all grouped slots and sources"] = applied && (0..<6).allSatisfy { grouped.speakers["group-\($0)"] == profile.name } && grouped.segments.last?.speakerID == "Interlocutore 2"
+            // Restore the rename fixture for the existing navigation/export checks.
+            _ = await model.rename("group-4",to:"Nome aggiornato",meetingID:fixture.id)
+            await model.flushVoiceSaves()
             model.focusSpeaker("group-5")
             checks["grouped person navigation finds first occurrence across sources"] = model.focusedSegmentID == fixture.segments[0].id
             let text = try String(contentsOf:folder.appendingPathComponent(fixture.folderName).appendingPathComponent("transcript.md"))

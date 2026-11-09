@@ -36,10 +36,7 @@ struct VoiceEnrollmentView: View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Ricorda questa voce", systemImage: "person.wave.2").font(.title2).fontWeight(.semibold)
             Text("Ascolta e seleziona da 2 a 6 passaggi con una sola persona. Evita musica, voci sovrapposte e rientri dagli altoparlanti.").font(.callout).foregroundStyle(.secondary)
-            Picker("Salva in", selection: $draft.existing) {
-                Text("Nuovo profilo").tag("")
-                ForEach(model.voiceProfiles) { profile in Text(profile.name).tag(profile.id.uuidString) }
-            }
+            VoiceProfileChooser(profiles:model.voiceProfiles,selection:$draft.existing,allowsNew:true)
             if draft.existing.isEmpty { TextField("Nome della persona", text: $draft.name).textFieldStyle(.roundedBorder) }
             ScrollView {
                 VStack(spacing: 10) {
@@ -62,7 +59,7 @@ struct VoiceEnrollmentView: View {
             }.frame(height: 230)
             Text("L’indicatore valuta volume, pause e saturazione; non certifica assenza di rumore o altre voci. La tua conferma prevale sulle differenze rilevate dal modello.").font(.caption).foregroundStyle(.secondary)
             Text(draft.guidance).font(.caption).foregroundStyle(.secondary)
-            Text(request.segment.speakerID.map { "Il nome verrà assegnato ai passaggi di «\($0)» in questa riunione." } ?? "Il nome verrà assegnato solo a questo passaggio: gli altri non hanno ancora un interlocutore distinto.").font(.caption).foregroundStyle(.secondary)
+            Text(request.speakerGroupID != nil ? "Il nome verrà assegnato a tutti i passaggi di questo interlocutore nella riunione." : request.segment.speakerID.map { "Il nome verrà assegnato ai passaggi di «\($0)» in questa riunione." } ?? "Il nome verrà assegnato solo a questo passaggio: gli altri non hanno ancora un interlocutore distinto.").font(.caption).foregroundStyle(.secondary)
             Toggle("Ho verificato che tutti i campioni selezionati sono della stessa persona", isOn: $draft.verified).toggleStyle(.checkbox)
             Toggle("Riconosci i profili salvati al termine delle prossime registrazioni", isOn: $draft.automatic).toggleStyle(.checkbox)
             Text("Il profilo resta su questo Mac. Si salvano caratteristiche della voce, senza copiare l’audio nel profilo. Il riconoscimento può sbagliare e non aggiorna i profili automaticamente.").font(.caption).foregroundStyle(.secondary)

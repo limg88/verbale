@@ -11,15 +11,19 @@ Apri `dist/Verbale.app`. Il pacchetto locale è firmato ad-hoc; non è una relea
 3. Avvia la registrazione e concedi i permessi richiesti da macOS per microfono e audio di sistema.
 4. Termina per avviare e completare la trascrizione. Per ridurre i consumi durante la call, la modalità iniziale salva l’audio e rimanda testo e interlocutori al termine. In **Impostazioni → Registrazione → Trascrizione** puoi scegliere l’elaborazione durante la registrazione. **Apri cartella** mostra Markdown, JSON e note.
 
+Se una sorgente selezionata non ha prodotto blocchi audio, la trascrizione mostra una segnalazione esplicita anche per le vecchie sessioni. Dopo 30 secondi senza blocchi di sistema, un avviso nella finestra, nel widget e nel menu invita a verificare uscita e permessi senza interrompere il microfono; una riunione silenziosa può produrre lo stesso avviso. Quando Teams espone un’uscita attiva diversa da quella scelta, Verbale segnala la differenza senza cambiare la scelta manuale.
+
 **Salva anche l’audio è attivo di default**, anche aggiornando dalla 0.1. Puoi togliere la spunta dalla pagina Riunione, dalle Impostazioni o dal widget: la scelta viene ricordata tra gli avvii e vale per le prossime sessioni. Durante registrazione ed elaborazione l'opzione è bloccata, così non cambia la politica della sessione già avviata.
 
 ### Elenco interlocutori
 
-L’elenco mostra una sola riga per ogni nome assegnato, raccogliendo i diversi gruppi vocali della stessa persona anche fra microfono e audio di sistema. Un clic apre il primo intervento; la matita aggiorna il nome in tutti i suoi passaggi. Per cambiare persona a un solo passaggio usa la matita accanto al testo. Identificativi, cronologia e provenienza rimangono separati; le proposte incerte non vengono raggruppate con le identità assegnate.
+L’elenco mostra una sola riga per ogni nome assegnato, raccogliendo i diversi gruppi vocali della stessa persona anche fra microfono e audio di sistema. Un clic apre il primo intervento; la matita aggiorna il nome in tutti i suoi passaggi. Il menu accanto alla persona offre **Ricorda questa voce** e **Assegna nome da profilo**, applicando il nome a tutti i gruppi e alle sorgenti raccolti nella riga. I profili si scelgono da un elenco ricercabile, anche quando si aggiungono campioni a un profilo esistente. Per cambiare persona a un solo passaggio usa la matita accanto al testo. Identificativi, cronologia e provenienza rimangono separati; le proposte incerte non vengono raggruppate con le identità assegnate.
 
 ### Gestione dell’archivio e nomi riconosciuti
 
 In **Archivio**, ogni riunione ha i pulsanti matita (modifica titolo) e cestino (rimozione con conferma). Il titolo si modifica anche dall’intestazione della riunione; cartella e percorsi audio rimangono gli stessi. Rimuovere dall’archivio sposta la copia interna nel Cestino del Mac e conserva i file esportati nella cartella scelta.
+
+**Separa soltanto** distingue le voci senza cercare nomi. **Separa e riconosci voci salvate** esegue già la separazione prima del riconoscimento: non serve eseguire entrambi i pulsanti. **Cerca altre voci** è un approfondimento facoltativo per preparare proposte locali da rivedere, utile anche oltre il limite di 8 voci della separazione normale.
 
 Il riconoscimento dei profili salvati è attivo come impostazione iniziale e viene eseguito al termine dell’elaborazione, se i modelli vocali sono disponibili. Una preferenza già salvata viene rispettata. Le corrispondenze sicure assegnano il nome alla trascrizione; una proposta incerta mostra il nome con un punto interrogativo arancione. Clicca sull’icona per confermare quel passaggio o correggerlo. Le proposte incerte restano da confermare nei dati esportati.
 

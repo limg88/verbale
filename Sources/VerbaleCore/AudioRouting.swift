@@ -68,6 +68,11 @@ public enum AudioRouteSelection {
         guard let device = available.first(where: { $0.runtimeID == id }) else { throw VerbaleError.message("Nessun dispositivo predefinito disponibile per \(label). Scegli un dispositivo nelle Impostazioni.") }
         return ResolvedAudioDevice(device:device,origin:.macDefault,explanation:choice == macDefault ? "Predefinito del Mac":(ambiguous ? "Più dispositivi Teams: uso il predefinito del Mac":"Teams non espone un dispositivo: uso il predefinito del Mac"))
     }
+    public static func outputMismatchWarning(_ output: ResolvedAudioDevice?, snapshot: AudioRouteSnapshot) -> String? {
+        guard let output, !snapshot.activeTeamsOutput.isEmpty,
+              !snapshot.activeTeamsOutput.contains(output.device.runtimeID) else { return nil }
+        return "L’uscita registrata (\(output.device.name)) è diversa dall’uscita attiva di Teams. Seleziona in Verbale la stessa uscita di Teams oppure Automatico; le voci remote potrebbero mancare."
+    }
     public static func isTeamsBundle(_ value:String) -> Bool {
         let value = value.lowercased()
         return ["com.microsoft.teams","com.microsoft.teams2"].contains { value == $0 || value.hasPrefix($0+".") }

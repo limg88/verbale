@@ -25,6 +25,16 @@ enum ReviewExportChecks {
             guard try inode(transcript)==originalTranscript,try inode(audio)==originalAudio,
                   try String(contentsOf:output.appendingPathComponent("notes.md"),encoding:.utf8)=="Nuove note",
                   try store.read(meeting.id).exported else{throw VerbaleError.message("export riscrive file invariati")}
+            // A fresh store (as in title editing) must reuse committed audio too.
+            let reopened = try SessionStore(root:store.root)
+            let source = store.workspace(meeting.id).appendingPathComponent(chunk.filename)
+            let originalBytes = try Data(contentsOf:source)
+            // A title-only edit must not rehash audio from a fresh store.
+            try Data("changed private fixture".utf8).write(to:source)
+            try meeting.changeTitle("Titolo rinominato")
+            meeting = try reopened.export(meeting,documentsOnly:true)
+            try VoiceChecks.require(try inode(audio) == originalAudio && String(contentsOf:transcript).contains("Titolo rinominato"),"title export replaced audio or missed document")
+            try originalBytes.write(to:source)
             // Missing attachments must be repaired even by a review-only export.
             try FileManager.default.removeItem(at:audio)
             meeting=try store.export(meeting,documentsOnly:true)

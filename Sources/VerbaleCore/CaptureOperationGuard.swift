@@ -67,6 +67,17 @@ public actor CaptureOperationGuard {
 }
 
 public enum RecordingReadiness {
+    public static func systemWarning(_ sources: [AudioSource], chunks: [AudioChunk], elapsed: Double) -> String? {
+        guard elapsed >= 30, waitingForSystem(sources,chunks:chunks) else { return nil }
+        let continued = sources.contains(.microphone) ? " Il microfono continua a registrare." : ""
+        return "Audio di sistema: nessun blocco ricevuto. Se gli altri stanno parlando, verifica l’uscita usata da Teams e il permesso Audio di sistema di macOS." + continued
+    }
+    public static func missingSourceWarnings(_ sources: [AudioSource], chunks: [AudioChunk], segments: [Segment] = []) -> [String] {
+        sources.filter { source in !chunks.contains { $0.source == source } && !segments.contains { $0.source == source } }.map {
+            "Registrazione incompleta: nessun audio acquisito da «\($0.label)». Verifica dispositivo e permessi; la trascrizione contiene solo le sorgenti ricevute."
+        }
+    }
+
     public static func waitingForSystem(_ sources: [AudioSource], chunks: [AudioChunk]) -> Bool { sources.contains(.system) && !chunks.contains(where: { $0.source == .system }) }
     public static func missingMicrophone(_ sources: [AudioSource], chunks: [AudioChunk], elapsed: Double) -> Bool { elapsed > 12 && sources.contains(.microphone) && !chunks.contains(where: { $0.source == .microphone }) }
 }

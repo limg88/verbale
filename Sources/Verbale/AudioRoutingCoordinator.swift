@@ -22,7 +22,7 @@ extension AppModel {
         catch { routingStatus = error.localizedDescription }
     }
     func readAudioSnapshot() async throws -> AudioRouteSnapshot {
-        let includeTeams = inputChoice == AudioRouteSelection.automatic || outputChoice == AudioRouteSelection.automatic
+        let includeTeams = system || inputChoice == AudioRouteSelection.automatic || outputChoice == AudioRouteSelection.automatic
         let query = Task.detached(priority:.utility) { try AudioRouteProbe.snapshot(includeTeams:includeTeams) }
         do { return try await AudioOperationDeadline.wait(for:query,seconds:3) }
         catch CaptureOperationError.timeout { throw VerbaleError.message("Rilevamento dei dispositivi non completato. Riprova con Aggiorna rilevamento nelle Impostazioni.") }
