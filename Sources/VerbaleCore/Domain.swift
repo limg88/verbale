@@ -72,6 +72,7 @@ public struct Meeting: Codable, Identifiable, Sendable {
     public var speakers: [String: String] = [:]
     public var modelDigests: [String: String] = [:]
     public var warnings: [String] = []
+    public var actionProposals: [ActionProposal]?
     public var report: String?
     public var reportStatus: String = "Non richiesto"
     public var exported = false

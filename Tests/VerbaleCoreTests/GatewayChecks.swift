@@ -97,6 +97,7 @@ enum GatewayChecks {
                 try await worker.run(workerJob,progress:{_ in})
                 let workerSaved=try workerStore.read(meeting.id)
                 try gatewayAssert(workerSaved.reportStatus=="Completato" && workerSaved.report?.contains("Marco")==true && FileManager.default.fileExists(atPath:root.appendingPathComponent(meeting.folderName).appendingPathComponent("report.md").path),"worker actual gateway transport, memory credential and archive export")
+                try gatewayAssert(workerSaved.actionProposals?.first?.owner == "Marco" && workerSaved.actionProposals?.first?.sources.first?.segmentID == meeting.segments[0].id, "worker persists structured action proposals with source IDs")
                 print("PASS report worker actual gateway transport, memory credential and archive export")
                 try gatewayAssert(operational.components(separatedBy:"\n\n---").first == operationalRepeated.components(separatedBy:"\n\n---").first && operational.contains("Marco") && operational.contains("Da confermare") == false && operational.contains("transcript.md#"),"actual gateway structured operational report and checkpoint")
                 let checkpoints = root.appendingPathComponent("checkpoint")

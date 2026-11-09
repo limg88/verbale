@@ -72,6 +72,12 @@ enum OperationalReportChecks {
             try opRequire(ReportMarkdown.cells(String(table)).count == 5 && report.contains("a\\|b"),"escaped technical pipes do not create extra columns")
             try opRequire(report.contains("Dipende da: collaudo") && report.contains("transcript.md#"),"dependency and navigable evidence preserved")
         }
+        await check("structured action proposals preserve stable transcript evidence") {
+            OperationalMock.handler = { request in (200,reply(evidence(OperationalMock.user(request),overview:true))) }
+            let result = try await ReportService.generateOperational(meeting:short,endpoint:LocalGateway.defaultEndpoint,model:"test",key:"operational-test-token-not-secret",session:session)
+            try opRequire(result.actions.count == 1 && result.actions[0].owner == "Anna" && result.actions[0].deadline == "venerdì", "structured values retained")
+            try opRequire(result.actions[0].sources.first?.segmentID == short.segments[0].id && result.actions[0].sources.first?.quote == short.segments[0].text, "stable source with snapshot")
+        }
         await check("large advertised blocks reduce calls to extractions plus one overview") {
             var extraction = 0,summary = 0,bounded = true
             OperationalMock.handler = { request in

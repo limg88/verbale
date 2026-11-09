@@ -11,6 +11,7 @@ struct DashboardView: View {
     private var prepared: Bool { model.installed.isSuperset(of: ["asr", "vad"]) }
     private var title: String {
         switch model.tab {
+        case "followup": return "Da seguire"
         case "archive": return "Archivio"
         case "settings": return "Impostazioni"
         case "models": return "Modelli locali"
@@ -45,6 +46,7 @@ struct DashboardView: View {
                 }
                 if !model.visibleWork.isEmpty { MeetingJobsView() }
                 if model.tab == "session" { session.padding(24) }
+                else if model.tab == "followup" { ProjectFollowUpView(tracker: model.projectTracker) }
                 else if model.tab == "archive" { archive }
                 else if model.tab == "settings" { DesktopSettingsView().padding(24) }
                 else { ScrollView { models.padding(24) } }
@@ -102,6 +104,7 @@ struct DashboardView: View {
             VStack(spacing: 4) {
                 navigation("session", "Riunione", "waveform")
                 navigation("archive", "Archivio", "tray.full")
+                navigation("followup", "Da seguire", "checklist")
             }
             if !model.meetings.isEmpty {
                 Text("Recenti").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 10)
@@ -185,12 +188,15 @@ struct DashboardView: View {
                         if let duplicates = meeting.echoDuplicates, !duplicates.isEmpty { Text("\(duplicates.count) passaggi di eco riconciliati. Gli originali sono conservati nei file della riunione.").font(.callout).foregroundStyle(.secondary) }
                     }
                 }
+                if !model.viewingRecording { ProjectAssignmentView(tracker: model.projectTracker, meetingID: meeting.id) }
                 Picker("Contenuto della riunione", selection: $model.meetingSection) {
                     Text("Trascrizione").tag("transcript")
                     Text("Note").tag("notes")
                     Text("Report").tag("report")
+                    Text("Attività").tag("actions")
                 }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 410)
                 switch model.meetingSection {
+                case "actions": MeetingActionsView(tracker: model.projectTracker, meeting: meeting)
                 case "notes": MeetingNotesView(meeting: meeting,drafts:model.noteDrafts)
                 case "report": MeetingReportView(meeting: meeting)
                 default: TranscriptReviewView(meeting: meeting)

@@ -77,6 +77,22 @@ Per diagnosticare il solo segnale, senza registrare: `verbale-cli teams-status` 
 
 **Report:** Verbale usa esclusivamente il gateway llm-api. Nelle Impostazioni verifica il collegamento e scegli un alias Claude, Codex, Groq o locale. La trascrizione, le note personali e i marcatori vengono inviati al backend scelto su richiesta; audio e immagini non vengono inviati. Il token locale è nel Portachiavi; le credenziali dei provider sono gestite dal gateway. I riferimenti riconosciuti diventano link alle fonti, quelli sconosciuti sono segnalati. La corrispondenza semantica richiede revisione; le modifiche ai contenuti rendono il report precedente **Da rigenerare**. La trascrizione funziona anche senza gateway.
 
+## Progetti e attività da seguire
+
+Una riunione conclusa può essere associata a un progetto dal selettore sopra Trascrizione, Note, Report e **Attività**. **Nuovo progetto…** crea il progetto e lo assegna alla riunione. Puoi creare progetti anche dalla nuova pagina **Da seguire**.
+
+1. Genera il report in formato **Operativo**. Le attività estratte conservano i campi originali e i riferimenti stabili ai passaggi della trascrizione; non entrano automaticamente nel registro.
+2. Nella scheda **Attività**, premi **Rivedi…**. Verifica descrizione, responsabile, dipendenze e stato. Una proposta o un impegno incerto richiede comunque conferma del PM.
+3. Scegli **Crea nuova attività** oppure **Aggiorna** una delle attività dello stesso progetto. Le possibili corrispondenze sono suggerimenti lessicali: la scelta rimane manuale. Aggiornando un’attività vengono mostrati i valori già confermati, da modificare esplicitamente in base alla nuova riunione.
+4. Le date relative, come «venerdì», rimangono testuali. Attiva **Data confermata dal PM** e scegli la data perché l’attività compaia nei filtri temporali.
+5. In **Da seguire**, filtra per progetto e per attività aperte, scadute, entro sette giorni, bloccate, senza responsabile o tutte. Clicca un’attività per modificarla e consultarne la cronologia e le fonti.
+
+La scadenza odierna non è considerata in ritardo. Le attività completate sono escluse dai filtri operativi e restano disponibili in **Tutte**. La mancata citazione in una riunione successiva non chiude un’attività. Rigenerare il report non sostituisce le modifiche confermate dal PM; una proposta già acquisita non può essere confermata due volte. Descrizioni identiche nello stesso progetto richiedono un aggiornamento esplicito o una descrizione che distingua le attività.
+
+Il registro locale è salvato atomicamente in `~/Library/Application Support/Verbale/project-ledger.json`, separato dai report, con permessi 0600. Conserva revisioni, testo originale delle scadenze e copie dei passaggi citati. Rimuovere una riunione dall’archivio conserva il registro e le citazioni già acquisite; il collegamento alla trascrizione non è più disponibile. Una riunione con attività confermate mantiene il progetto assegnato. Errori di salvataggio sono visibili e non pubblicano modifiche come se fossero riuscite; un registro non leggibile blocca le modifiche e conserva il file originale.
+
+Il primo MVP non include sincronizzazione, notifiche, invii esterni o integrazioni con task manager. Le proposte strutturate richiedono una nuova generazione del report operativo; i report estesi non le producono. Il registro complessivo non è incluso nell’esportazione della singola riunione: per conservarlo su un altro Mac occorre includere il file del registro nel backup.
+
 ## Build riproducibile
 
 ### Prova audio Android

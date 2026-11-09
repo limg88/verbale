@@ -8,7 +8,7 @@ enum ProjectReport {
     static func generate(meeting:Meeting,endpoint:String,model:String,key:String,session:URLSession,
                          checkpointDirectory:URL?,timing:ReportTiming,policy:ReportPolicy,
                          diagnostics:@escaping @Sendable (ReportMetric)->Void,
-                         progress:@escaping @Sendable (String)->Void) async throws -> String {
+                         progress:@escaping @Sendable (String)->Void) async throws -> OperationalReport {
         let run = ReportRun(policy:policy,timing:timing,observe:diagnostics)
         defer { if Task.isCancelled { run.outcome = "cancelled" };run.finish() }
         do {
@@ -94,7 +94,13 @@ enum ProjectReport {
             let markdown = ProjectReportRenderer.render(evidence,overview:overview)
             let resolved = ReportService.resolveReferences(markdown,meeting:meeting)
             run.outcome = "success"
-            return "# \(meeting.title)\n\n\(resolved)\n\n---\nReport operativo · Gateway locale / \(model) · \(ISO8601DateFormatter().string(from:timing.now())) · prompt \(ProjectReportPrompt.version)\nI rimandi identificano le fonti fornite; gli intervalli aprono il primo passaggio citato. Il contenuto del report richiede revisione.\n"
+            let markdownResult = "# \(meeting.title)\n\n\(resolved)\n\n---\nReport operativo · Gateway locale / \(model) · \(ISO8601DateFormatter().string(from:timing.now())) · prompt \(ProjectReportPrompt.version)\nI rimandi identificano le fonti fornite; gli intervalli aprono il primo passaggio citato. Il contenuto del report richiede revisione.\n"
+            let actions = evidence.facts.filter { $0.kind == "action" }.map {
+                ActionProposal(meeting: meeting, text: $0.text, owner: $0.owner, deadline: $0.deadline,
+                               declaredStatus: $0.status, dependencies: $0.dependencies,
+                               commitment: $0.commitment ?? "unclear", references: $0.refs)
+            }.filter { !$0.sources.isEmpty }
+            return OperationalReport(markdown: markdownResult, actions: actions)
         } catch {
             run.outcome = error is CancellationError ? "cancelled":(error as? ReportServiceError).map { String(describing:$0.kind) } ?? "failed"
             if var failure = error as? ReportServiceError,let metric = run.currentMetric {

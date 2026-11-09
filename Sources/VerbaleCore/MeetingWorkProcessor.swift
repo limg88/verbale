@@ -141,16 +141,23 @@ public actor MeetingWorkProcessor {
         guard let config=job.report else { throw VerbaleError.message("Configurazione report mancante") }
         let input=try await disk.read(job.meetingID)
         let text:String
+        var proposals:[ActionProposal]?
         if let generateReport { text=try await generateReport(input,config,progress) }
         else {
-        let token=try config.token ?? credential(config)
-        text=try await ReportService.generate(meeting:input,endpoint:config.endpoint,model:config.model,key:token,style:ReportStyle(rawValue:config.style) ?? .operational,checkpointDirectory:root.appendingPathComponent(input.id.uuidString).appendingPathComponent("report-jobs"),progress:{text in Task{await progress(text)}})
+            let token=try config.token ?? credential(config)
+            let checkpoint=root.appendingPathComponent(input.id.uuidString).appendingPathComponent("report-jobs")
+            if (ReportStyle(rawValue:config.style) ?? .operational) == .operational {
+                let result = try await ReportService.generateOperational(meeting:input,endpoint:config.endpoint,model:config.model,key:token,checkpointDirectory:checkpoint,progress:{text in Task{await progress(text)}})
+                text=result.markdown;proposals=result.actions
+            } else {
+                text=try await ReportService.generate(meeting:input,endpoint:config.endpoint,model:config.model,key:token,style:.detailed,checkpointDirectory:checkpoint,progress:{text in Task{await progress(text)}})
+            }
         }
         try Task.checkCancellation()
         var output=try await disk.read(input.id)
         guard output.reportInputRevision==input.reportInputRevision,output.title==input.title,
               ReportService.sourceBatches(meeting:output,limit:48000).map(\.text)==ReportService.sourceBatches(meeting:input,limit:48000).map(\.text) else { throw VerbaleError.message("Le fonti sono cambiate: il report precedente è conservato. Rigenera il report aggiornato.") }
-        let expected=output;output.report=text;output.reportStatus="Completato";output.exported=false
+        let expected=output;output.actionProposals=proposals;output.report=text;output.reportStatus="Completato";output.exported=false
         _=try await disk.commit(output,expected:expected,export:true)
     }
 }
