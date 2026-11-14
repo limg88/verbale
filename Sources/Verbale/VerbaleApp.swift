@@ -44,6 +44,8 @@ import VerbaleCore
                 Button(model.isRecording ? "Termina riunione" : "Avvia riunione") {
                     Task { if model.isRecording { await model.stop() } else { await model.start() } }
                 }.keyboardShortcut("r", modifiers: [.command, .shift]).disabled(model.busy || model.reportBusy || (!model.isRecording && (model.working || model.voiceEnrollment != nil || model.auditReviewVisible || model.refinementVisible)))
+                Button("Nuova riunione") { model.showMainWindow(); model.newMeeting() }.keyboardShortcut("n")
+                Button("Cerca in archivio") { model.showMainWindow(); if !model.navigationLocked && !model.isRecording { model.tab = "archive" } }.keyboardShortcut("f")
                 Button("Mostra widget") { model.showWidget() }.keyboardShortcut("m", modifiers: [.command, .shift])
                 Button("Screenshot della riunione") { Task { await model.screenshot() } }.keyboardShortcut("2", modifiers: [.command, .shift]).disabled(!model.isRecording)
             }
