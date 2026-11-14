@@ -55,8 +55,8 @@ public struct SpeakerAudit: Codable, Identifiable, Sendable {
         guard !name.isEmpty, name.count <= 100, !selected.isEmpty, selected.isSubset(of: allowed) else { throw VerbaleError.message("Scegli il nome e almeno un passaggio della stessa voce proposta.") }
         let affectedParents = Set(pieces.filter { selected.contains($0.id) }.map(\.originalID))
         let byParent = Dictionary(grouping: pieces, by: \.originalID)
-        let byID = Dictionary(uniqueKeysWithValues: pieces.map { ($0.id, $0) })
-        let originalByID = Dictionary(uniqueKeysWithValues: originalSegments.map { ($0.id, $0) })
+        let byID = Dictionary(pieces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let originalByID = Dictionary(originalSegments.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var updated = meeting, output: [Segment] = [], replacements: [UUID:[UUID]] = [:]
         let key = automatic == nil ? "manual-audit-" + UUID().uuidString : "auto-learn-" + UUID().uuidString
         var autoChanges: [String:SpeakerAutomaticAssignment] = [:]

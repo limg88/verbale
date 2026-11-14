@@ -52,7 +52,7 @@ public struct TranscriptRefinement:Codable,Identifiable,Sendable {
     }
     public mutating func undo(in meeting:inout Meeting) throws {
         guard !applied.isEmpty,isCurrent(for:meeting) else { throw VerbaleError.message("Sono presenti modifiche successive: il ripristino automatico non è disponibile.") }
-        let previous = Dictionary(uniqueKeysWithValues:original.segments.map { ($0.id,$0) })
+        let previous = Dictionary(original.segments.map { ($0.id,$0) }, uniquingKeysWith: { first, _ in first })
         for i in meeting.segments.indices where applied.contains(meeting.segments[i].id) { if let value = previous[meeting.segments[i].id] { meeting.segments[i] = value } }
         meeting.voiceMatches = (meeting.voiceMatches ?? []).filter { !applied.contains($0.segmentID) }+(original.voiceMatches ?? []).filter { applied.contains($0.segmentID) }
         if meeting.review == nil { meeting.review = MeetingReview() }

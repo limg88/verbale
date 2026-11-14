@@ -77,7 +77,7 @@ public actor TranscriptionEngine {
         return output
     }
     public func diarize(samples: [Float], segments: [Segment], offset: Double = 0) throws -> DiarizationResult {
-        guard let diarizer else { return DiarizationResult(segments: segments, replacements: Dictionary(uniqueKeysWithValues: segments.map { ($0.id, [$0.id]) })) }
+        guard let diarizer else { return DiarizationResult(segments: segments, replacements: Dictionary(segments.map { ($0.id, [$0.id]) }, uniquingKeysWith: { first, _ in first })) }
         let ranges = try JSONDecoder().decode(Regions.self, from: diarizer.json(samples, operation: 2)).segments
         return SpeakerDiarization.split(segments, regions: ranges.map { SpeakerRegion(start: $0.start, end: $0.end, speaker: $0.speaker) }, offset: offset)
     }

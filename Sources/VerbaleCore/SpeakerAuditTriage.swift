@@ -17,7 +17,7 @@ public struct SpeakerAuditTriage: Sendable {
     public let deferredCount: Int
     public let reviewedCount: Int
     public init(audit: SpeakerAudit, meeting: Meeting, limit: Int = 5) {
-        let originals = Dictionary(uniqueKeysWithValues: audit.originalSegments.map { ($0.id,$0) })
+        let originals = Dictionary(audit.originalSegments.map { ($0.id,$0) }, uniquingKeysWith: { first, _ in first })
         let groups = Dictionary(grouping: audit.pieces.filter { !audit.applied.contains($0.id) }, by: { $0.groupID })
         let reviewed = audit.reviewedGroups ?? []
         var primary: [String:(UUID,Double,SpeakerAuditPiece)] = [:]

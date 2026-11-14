@@ -51,7 +51,7 @@ public enum ReportService {
     /// Only IDs present in this snapshot become links. Unknown references remain explicitly unverified.
     public static func resolveReferences(_ text: String, meeting: Meeting) -> String {
         let entries = sources(meeting)
-        let links = Dictionary(uniqueKeysWithValues: entries.map { ($0.token, $0.link) })
+        let links = Dictionary(entries.map { ($0.token, $0.link) }, uniquingKeysWith: { first, _ in first })
         let regex = try! NSRegularExpression(pattern: #"\[\[([A-Za-z][A-Za-z0-9_-]*)\]\]"#)
         let compacted = ReportCitations.compact(text,meeting:meeting)
         var output = compacted
