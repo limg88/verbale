@@ -136,7 +136,7 @@ verbale-cli transcribe audio.wav asr.gguf vad.gguf cartella-output /percorso/lib
 
 `scripts/test.sh` usa un eseguibile di controllo indipendente da XCTest, perché la toolchain Command Line Tools disponibile non include XCTest. Verifica recupero con journal troncato, esportazione, disco assente, allegati mancanti, collisioni, ricampionamento, conservazione dell'audio esportato dopo la pulizia e rimozione esplicita della spunta audio.
 
-Verifica anche conferma iniziale Teams, riconnessioni, chiamate consecutive, assenza di avvii duplicati, segnale indisponibile e identità/livello dell'asserzione. Sono 19 controlli, inclusi archivi precedenti, cronologia correzioni, marcatori, ancore esportate e generazione report con note tramite un trasporto simulato, senza contattare servizi esterni.
+Verifica anche conferma iniziale Teams, riconnessioni, chiamate consecutive, assenza di avvii duplicati, segnale indisponibile e identità/livello dell'asserzione. I controlli includono archivi precedenti, cronologia correzioni, marcatori, ancore esportate e generazione report con note tramite un trasporto simulato, senza contattare servizi esterni.
 
 La build isolata `python3 scripts/build.py --skip-native --preview` accetta `--check-background-ui` sul proprio eseguibile: esegue 11 controlli delle finestre, della modalità senza Dock e della revisione con dati dimostrativi, senza acquisire audio o avviare il monitor. Verifica navigazione alle fonti, correzione tramite il coordinatore e persistenza del report da rigenerare; scrive l'esito in `.build/preview-profile/background-ui-checks.json` e un’immagine della vista in `review-ui.png`. Il flag non è attivo nel bundle distribuito.
 
