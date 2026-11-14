@@ -38,7 +38,7 @@ struct RecordingWidget: View {
                     }
                 } label: { Label("\((model.recording ?? model.current)?.markers.count ?? 0)", systemImage: "flag") }
                     .menuStyle(.borderlessButton).fixedSize().disabled(!model.isRecording || model.busy)
-                    .help("Segna momento · \((model.recording ?? model.current)?.markers.count ?? 0) marcatori")
+                    .help("Segna momento · \((model.recording ?? model.current)?.markers.count ?? 0) marcatori").accessibilityLabel("Segna momento · \((model.recording ?? model.current)?.markers.count ?? 0) marcatori")
                 Button { Task { await model.screenshot() } } label: { Image(systemName: "camera") }.disabled(!model.isRecording).help("Screenshot").accessibilityLabel("Screenshot")
             }
             Button {

@@ -45,7 +45,7 @@ struct TranscriptReviewView: View {
                     Button("Riascolta e confronta…") { model.showRefinement() }.disabled(model.sessionLocked || (!meeting.keepAudio && !meeting.keepRecovery)).help("Prepara proposte con più contesto, senza cambiare la trascrizione")
                 }
                 if model.viewingRecording && !(model.viewingRecording && model.transcriptionDeferred) { Toggle("Segui il parlato", isOn: $state.followLive).toggleStyle(.checkbox).font(.callout) }
-                if model.savingVoiceMeetings.contains(meeting.id) { ProgressView().controlSize(.small).help("Salvataggio delle conferme vocali…") }
+                if model.savingVoiceMeetings.contains(meeting.id) { ProgressView().controlSize(.small).help("Salvataggio delle conferme vocali…").accessibilityLabel("Salvataggio delle conferme vocali") }
                 Label(model.viewingRecording && !meeting.chunks.isEmpty ? "Audio salvato sul Mac" : meeting.exported ? "Salvata" : "Da salvare", systemImage: (model.viewingRecording && !meeting.chunks.isEmpty) || meeting.exported ? "checkmark.circle" : "clock").font(.caption).foregroundStyle(.secondary)
             }
             if !model.viewingRecording {
@@ -112,7 +112,7 @@ struct TranscriptReviewView: View {
                                             Button("Assegna nome da profilo…") { state.assigningProfile = segment }
                                         }
                                     } label: { Image(systemName: "person.crop.circle.badge.plus") }
-                                        .menuStyle(.borderlessButton).fixedSize().disabled(model.sessionLocked).help("Crea un profilo vocale dai passaggi registrati")
+                                        .menuStyle(.borderlessButton).fixedSize().disabled(model.sessionLocked).help("Crea un profilo vocale dai passaggi registrati").accessibilityLabel("Azioni sulla voce di questo passaggio")
                                     Button { state.editing = segment } label: { Image(systemName: "pencil") }
                                         .buttonStyle(.plain).disabled(model.sessionLocked).help("Correggi testo o interlocutore")
                                         .accessibilityLabel("Correggi segmento a \(timecode(segment.start))")
@@ -187,7 +187,7 @@ private struct SegmentEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Correggi segmento · \(timecode(segment.start))").font(.headline)
-            TextEditor(text: $draft.text).font(.body).frame(height: 150).border(.secondary.opacity(0.25))
+            TextEditor(text: $draft.text).font(.body).frame(height: 150).accessibilityLabel("Testo del passaggio").border(.secondary.opacity(0.25))
             Picker("Interlocutore", selection: $draft.speaker) {
                 Text(segment.source.label).tag("")
                 ForEach(speakerIDs, id: \.self) { id in Text(meeting.speakers[id] ?? id).tag(id) }
@@ -256,10 +256,10 @@ private struct SpeakerNameRow: View {
                         Button("Ricorda questa voce…") { model.beginVoiceEnrollment(segment,speakerGroupID:speakerID) }.disabled(!meeting.keepAudio && !meeting.keepRecovery)
                         Button("Assegna nome da profilo…") { assigningProfile = true }.disabled(model.voiceProfiles.isEmpty)
                     } label: { Image(systemName:"person.crop.circle.badge.plus") }
-                        .menuStyle(.borderlessButton).fixedSize().help("Profili vocali di questo interlocutore")
+                        .menuStyle(.borderlessButton).fixedSize().help("Profili vocali di questo interlocutore").accessibilityLabel("Profili vocali di questo interlocutore")
                         .sheet(isPresented:$assigningProfile) { VoiceProfileAssignmentView(meetingID:meetingID,segmentID:segment.id,speakerGroupID:speakerID).environmentObject(model) }
                 }
-                Button { draft.text = name; draft.editing = true; focused = true } label: { Image(systemName:"pencil") }.buttonStyle(.plain).help("Modifica il nome in tutti i passaggi di questa persona")
+                Button { draft.text = name; draft.editing = true; focused = true } label: { Image(systemName:"pencil") }.buttonStyle(.plain).help("Modifica il nome in tutti i passaggi di questa persona").accessibilityLabel("Modifica nome dell’interlocutore")
             }
         }.font(.callout).disabled(model.sessionLocked)
             .onChange(of:name) { _,value in if !draft.editing { draft.text = value } }

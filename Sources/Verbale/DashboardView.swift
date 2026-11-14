@@ -70,7 +70,7 @@ struct DashboardView: View {
                 HStack {
                     Text(title).font(.system(size:21,weight:.semibold)).lineLimit(1).help(title)
                     if model.tab == "session", let meeting = model.current, !model.viewingRecording {
-                        Button { model.editMeetingTitle(meeting) } label: { Image(systemName:"pencil") }.buttonStyle(.plain).help("Modifica titolo").disabled(!model.canManageMeeting(meeting))
+                        Button { model.editMeetingTitle(meeting) } label: { Image(systemName:"pencil") }.buttonStyle(.plain).help("Modifica titolo").accessibilityLabel("Modifica titolo").disabled(!model.canManageMeeting(meeting))
                     }
                 }
                 if model.tab == "session", let meeting = model.current {
@@ -92,7 +92,7 @@ struct DashboardView: View {
                     .controlSize(.large).disabled(model.navigationLocked)
             }
             if model.tab == "session", let meeting = model.current, !model.viewingRecording {
-                Button { model.reveal() } label: { Image(systemName: "folder") }.help("Apri cartella della riunione").disabled(!meeting.exported)
+                Button { model.reveal() } label: { Image(systemName: "folder") }.help("Apri cartella della riunione").accessibilityLabel("Apri cartella della riunione").disabled(!meeting.exported)
                 Button(role:.destructive) { model.delete(meeting) } label: { Image(systemName:"trash") }
                     .help(model.workLocked(meeting.id) ? "Sospendi le attività della riunione prima di rimuoverla.":"Rimuovi riunione…").accessibilityLabel("Rimuovi riunione").disabled(!model.canManageMeeting(meeting))
             }
@@ -243,7 +243,7 @@ struct DashboardView: View {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Cerca in titoli, trascrizioni e note", text: $viewState.query).textFieldStyle(.plain)
-                if !viewState.query.isEmpty { Button { viewState.query = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).help("Cancella ricerca") }
+                if !viewState.query.isEmpty { Button { viewState.query = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).help("Cancella ricerca").accessibilityLabel("Cancella ricerca") }
             }.padding(12).background(.background, in: RoundedRectangle(cornerRadius: 10))
             Text("\(filteredMeetings.count) riunioni").font(.callout).foregroundStyle(.secondary)
             if filteredMeetings.isEmpty {
@@ -265,8 +265,8 @@ struct DashboardView: View {
                             Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                         }.padding(.vertical, 8).contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(model.navigationLocked)
-                        Button { model.editMeetingTitle(meeting) } label: { Image(systemName:"pencil") }.buttonStyle(.borderless).help("Modifica titolo").disabled(!model.canManageMeeting(meeting))
-                    Button(role:.destructive) { model.delete(meeting) } label: { Image(systemName:"trash") }.buttonStyle(.borderless).help("Rimuovi dall’archivio…").disabled(!model.canManageMeeting(meeting))
+                        Button { model.editMeetingTitle(meeting) } label: { Image(systemName:"pencil") }.buttonStyle(.borderless).help("Modifica titolo").accessibilityLabel("Modifica titolo di \(meeting.title)").disabled(!model.canManageMeeting(meeting))
+                    Button(role:.destructive) { model.delete(meeting) } label: { Image(systemName:"trash") }.buttonStyle(.borderless).help("Rimuovi dall’archivio…").accessibilityLabel("Rimuovi \(meeting.title) dall’archivio").disabled(!model.canManageMeeting(meeting))
                     }
                     .contextMenu {
                         Button("Apri riunione") { model.open(meeting) }.disabled(model.navigationLocked)

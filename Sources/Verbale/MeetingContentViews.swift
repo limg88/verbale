@@ -90,7 +90,7 @@ struct MeetingNotesView: View {
                                 HStack {
                                     Button("\(timecode(marker.timestamp)) · \(marker.kind.label)") { _ = model.openReportSource(URL(string: "transcript.md#\(marker.anchor)")!) }.buttonStyle(.plain)
                                     Spacer()
-                                    Button { model.removeMarker(marker.id) } label: { Image(systemName: "trash") }.buttonStyle(.plain).disabled(model.reportBusy || model.busy).help("Rimuovi marcatore")
+                                    Button { model.removeMarker(marker.id) } label: { Image(systemName: "trash") }.buttonStyle(.plain).disabled(model.reportBusy || model.busy).help("Rimuovi marcatore").accessibilityLabel("Rimuovi marcatore")
                                 }
                             }
                         }.padding(.top, 8)

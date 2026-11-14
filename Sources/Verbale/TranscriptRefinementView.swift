@@ -41,7 +41,7 @@ struct TranscriptRefinementView:View {
                         if proposals.isEmpty { Text("Nessuna proposta in questa selezione.").foregroundStyle(.secondary).padding() }
                         ForEach(proposals) { proposal in
                             HStack(alignment:.top,spacing:10) {
-                                Toggle("",isOn:Binding(get:{state.selected.contains(proposal.id)},set:{if $0 {state.selected.insert(proposal.id)} else {state.selected.remove(proposal.id)}})).toggleStyle(.checkbox).labelsHidden().disabled(model.busy)
+                                Toggle("",isOn:Binding(get:{state.selected.contains(proposal.id)},set:{if $0 {state.selected.insert(proposal.id)} else {state.selected.remove(proposal.id)}})).toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Applica questa proposta").disabled(model.busy)
                                 VStack(alignment:.leading,spacing:6) {
                                     HStack {
                                         Text(timecode(proposal.start)+" · "+proposal.source.label).font(.caption).foregroundStyle(.secondary)

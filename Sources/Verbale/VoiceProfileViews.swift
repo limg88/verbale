@@ -121,7 +121,7 @@ private struct VoiceProfileRow: View {
                     TextField("Nome", text: $draft.name).textFieldStyle(.roundedBorder)
                     Button("Rinomina") { model.updateVoiceProfile(profile.id, name: draft.name) }.disabled(draft.name == profile.name)
                     Toggle("Attivo", isOn: Binding(get: { profile.enabled }, set: { model.updateVoiceProfile(profile.id, enabled: $0) })).toggleStyle(.checkbox)
-                    Button(role: .destructive) { model.updateVoiceProfile(profile.id, remove: true) } label: { Image(systemName: "trash") }.help("Elimina profilo")
+                    Button(role: .destructive) { model.updateVoiceProfile(profile.id, remove: true) } label: { Image(systemName: "trash") }.help("Elimina profilo").accessibilityLabel("Elimina profilo \(profile.name)")
                 }
                 if profile.needsMatchConfirmation { Label("Campioni variabili per il modello · riconoscimenti da confermare", systemImage: "person.crop.circle.badge.questionmark").font(.caption).foregroundStyle(.orange) }
                 Text("\(profile.samples.count) campioni · creato il \(profile.created.formatted(date: .abbreviated, time: .omitted)) · modello legato al profilo").font(.caption).foregroundStyle(.secondary)
