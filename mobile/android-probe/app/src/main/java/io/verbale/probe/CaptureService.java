@@ -37,7 +37,11 @@ public final class CaptureService extends Service {
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null) { stopSelf(); return START_NOT_STICKY; }
-        if (STOP.equals(intent.getAction())) { requestStop("Arresto richiesto"); return START_NOT_STICKY; }
+        if (STOP.equals(intent.getAction())) {
+            // A stop sent after the process died recreates an idle service: end it instead of leaving it alive.
+            if (started) requestStop("Arresto richiesto"); else stopSelf();
+            return START_NOT_STICKY;
+        }
         if (!START.equals(intent.getAction()) || started) return START_NOT_STICKY;
         started = true;
         int mode = intent.getIntExtra("mode", MIC);
