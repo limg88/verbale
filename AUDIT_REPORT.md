@@ -210,14 +210,14 @@ Stato finale: check 138/138, self-check UI 147/147, build release OK, probe Andr
 
 ## 10. Terza tornata (2026-11-14)
 
-Stato: check 139/139, self-check UI 148/148, build nativa completa OK.
+Stato: check 140/140, self-check UI 148/148, build nativa completa OK.
 
 | ID | Esito | Dettaglio |
 |---|---|---|
 | E-22 | Fatto | Decodifica e scrittura dell'audio dei blocchi fuori dal main in modalità "durante la registrazione". **Da provare con una registrazione reale in quella modalità** |
 | E-21 | Fatto (approvato) | Durante la registrazione il manifest viene riscritto al massimo ogni 10 s invece che a ogni blocco; i blocchi restano durevoli nel journal, riletto da `stop()` e dal recupero all'avvio. Il self-check "deferred recording persists all chunks without ASR" ora verifica la durabilità tramite journal, e un check nuovo verifica il throttling. **Da provare con una registrazione reale, inclusa una chiusura forzata a metà** |
 | E-29 | In parte | `CoreLog`; tracciati manifest illeggibili e letture fallite del Portachiavi. Restano gli altri `try?` e la logica basata su stringhe |
-| E-32 | In parte | `meeting.json` esportato senza percorso assoluto (nuovo check). Formato audio invariato: i blocchi `.caf` esportati sono anche la sorgente di recupero dell'app, vedi `docs/WINDOWS-PORT.md` |
+| E-32 | Fatto | `meeting.json` esportato senza percorso assoluto. A registrazione conclusa l'export aggiunge `audio/microfono.wav` e `audio/sistema.wav` accanto ai blocchi `.caf`, che restano la sorgente di recupero (scelta approvata). Costo: circa 115 MB per ora e per sorgente in più. Due check nuovi. Non provato su una riunione reale né aperto su Windows |
 | E-33 | Preparazione | Guardie di portabilità nel core e piano in `docs/WINDOWS-PORT.md`. Nulla compilato su Windows o Linux |
 | E-36 | Non fatto | Stabilire se il pin ggml del 2026-05-25 contiene le correzioni delle CVE del parser GGUF richiede il confronto dei commit upstream |
 | Residui E-17, E-19, E-20, E-23 | Non fatti | Motivo visibile sui controlli disabilitati, errori per contesto, glossario dei termini, fingerprint nei cicli |
