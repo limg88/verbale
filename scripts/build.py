@@ -7,6 +7,7 @@ import plistlib
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from buildenv import apply_sdkroot, reset_stale_cmake
@@ -43,7 +44,7 @@ def main():
     parser.add_argument("--sign", default="-", help="Developer ID identity; default ad-hoc for local use")
     args = parser.parse_args()
     if not args.skip_native or not (ROOT / ".build/echo/webrtc/libverbale_aec.dylib").exists():
-        run(["python3", ROOT / "scripts/build_echo.py"])
+        run([sys.executable, ROOT / "scripts/build_echo.py"])
     source = ROOT / "native/parakeet.cpp"
     if not (source / "CMakeLists.txt").exists():
         if (ROOT / ".gitmodules").exists():

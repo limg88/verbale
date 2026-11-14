@@ -33,10 +33,10 @@ public actor TranscriptionEngine {
     public static var defaultLibrary: URL {
         if let path = ProcessInfo.processInfo.environment["VERBALE_LIBRARY"] { return URL(fileURLWithPath: path) }
         if let folder = Bundle.main.privateFrameworksURL {
-            let library = folder.appendingPathComponent("libparakeet.dylib")
+            let library = folder.appendingPathComponent(NativeLibrary.filename("parakeet"))
             if FileManager.default.fileExists(atPath: library.path) { return library }
         }
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/parakeet/libparakeet.dylib")
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/parakeet").appendingPathComponent(NativeLibrary.filename("parakeet"))
     }
     public func load(asr: URL, vad: URL, diarization: URL? = nil, library: URL = defaultLibrary) throws {
         self.asr = nil; self.vad = nil; self.diarizer = nil

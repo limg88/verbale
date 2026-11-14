@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking // URLSession lives here on Linux and Windows
+#endif
 import OSLog
 
 /// Limits apply to one invocation, including discovery, requests and retry waits.

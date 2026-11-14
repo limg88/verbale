@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking // URLSession lives here on Linux and Windows
+#endif
 
 /// Verbale speaks only to the local gateway. Provider details stay behind that boundary.
 public struct ReportFailureContext: Sendable {

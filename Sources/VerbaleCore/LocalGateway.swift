@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking // URLSession lives here on Linux and Windows
+#endif
 
 public struct GatewayModel: Decodable, Hashable, Sendable {
     public let id: String
