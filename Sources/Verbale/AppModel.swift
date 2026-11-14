@@ -619,15 +619,22 @@ import VerbaleCore
                 let needsEchoCancellation = chunk.source == .microphone && meeting.usesEchoCancellation
                 let neighborhood = siblings[max(0, index - (needsEchoCancellation ? 2 : 1))...min(index + 1, siblings.count - 1)]
                 let transcriptionOffset = siblings[max(0, index - 1)].start
-                var audio: [Float] = []; var offset = neighborhood.first!.start
-                for item in neighborhood {
-                    let start = Int((item.start - offset) * 16000)
-                    guard start < 60 * 16000 else { continue }
-                    if start > audio.count { audio.append(contentsOf: repeatElement(0, count: start - audio.count)) }
-                    let input = try AudioFiles.samples(audioURL(meeting, filename: item.filename))
-                    let overlap = max(0, audio.count - start)
-                    audio.append(contentsOf: input.dropFirst(overlap))
-                }
+                var offset = neighborhood.first!.start
+                // Decode the audio files off the main actor: this loop runs during the call.
+                let inputs = neighborhood.map { (start: $0.start, url: audioURL(meeting, filename: $0.filename)) }
+                let firstStart = offset
+                var audio: [Float] = try await Task.detached(priority: .utility) {
+                    var audio: [Float] = []
+                    for item in inputs {
+                        let start = Int((item.start - firstStart) * 16000)
+                        guard start < 60 * 16000 else { continue }
+                        if start > audio.count { audio.append(contentsOf: repeatElement(0, count: start - audio.count)) }
+                        let input = try AudioFiles.samples(item.url)
+                        let overlap = max(0, audio.count - start)
+                        audio.append(contentsOf: input.dropFirst(overlap))
+                    }
+                    return audio
+                }.value
                 var cleanedFilename: String?
                 var incompleteReference = false
                 if needsEchoCancellation {
@@ -639,7 +646,8 @@ import VerbaleCore
                     guard end - begin == chunk.sampleCount else { throw VerbaleError.message("Blocco microfono AEC incompleto") }
                     incompleteReference = result.covered[begin..<end].contains(0)
                     let filename = "audio/cleaned_\(chunk.id.uuidString).caf"
-                    try AudioFiles.write(Array(audio[begin..<end]), to: store.workspace(meeting.id).appendingPathComponent(filename))
+                    let cleaned = Array(audio[begin..<end]), cleanedURL = store.workspace(meeting.id).appendingPathComponent(filename)
+                    try await Task.detached(priority: .utility) { try AudioFiles.write(cleaned, to: cleanedURL) }.value
                     cleanedFilename = filename
                 }
                 // Give the adaptive filter extra warm-up without expanding ASR work.
