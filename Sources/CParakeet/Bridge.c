@@ -37,7 +37,7 @@ vb_engine *vb_open(const char *path, const char *model, char *error, size_t size
     vb_engine *e = calloc(1, sizeof(*e));
     if (!e) { snprintf(error, size, "Memoria insufficiente"); return NULL; }
     e->library = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-    if (!e->library) { snprintf(error, size, "%s", dlerror()); free(e); return NULL; }
+    if (!e->library) { const char *reason = dlerror(); snprintf(error, size, "%s", reason ? reason : "Libreria Parakeet non caricabile"); free(e); return NULL; }
     pthread_mutex_lock(&lifecycle);
 #define RESOLVE(field, symbol) do { *(void **)(&e->field) = dlsym(e->library, symbol); \
     if (!e->field) { snprintf(error, size, "Simbolo richiesto assente: %s", symbol); goto fail; } } while(0)
@@ -68,7 +68,7 @@ vb_engine *vb_open(const char *path, const char *model, char *error, size_t size
     *(void **)(&e->shutdown_voice) = dlsym(e->library, "_ZN2vd16shutdown_backendEv");
     if (e->abi() != 11) { snprintf(error, size, "ABI Parakeet incompatibile: %d (richiesta 11)", e->abi()); goto fail; }
     e->context = e->load(model);
-    if (!e->context) { snprintf(error, size, "%s", e->load_error()); goto fail; }
+    if (!e->context) { const char *reason = e->load_error(); snprintf(error, size, "%s", reason ? reason : "Modello non caricabile"); goto fail; }
     live_contexts++; pthread_mutex_unlock(&lifecycle); return e;
 fail:
     if (live_contexts == 0) { if (e->shutdown_voice) e->shutdown_voice(); if (e->shutdown) e->shutdown(); }

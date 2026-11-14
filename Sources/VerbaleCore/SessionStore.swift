@@ -7,6 +7,8 @@ public final class SessionStore {
     public init(root: URL? = nil) throws {
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Verbale/Sessions", isDirectory: true)
         try FileManager.default.createDirectory(at: self.root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        // createDirectory leaves an existing folder's mode untouched; recordings must stay private.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: self.root.path)
     }
     public func workspace(_ id: UUID) -> URL { root.appendingPathComponent(id.uuidString, isDirectory: true) }
     public func save(_ meeting: Meeting) throws {
@@ -36,6 +38,7 @@ public final class SessionStore {
         if let data = try? Data(contentsOf: path), let text = String(data: data, encoding: .utf8) {
             for row in text.split(separator: "\n") {
                 guard let bytes = row.data(using: .utf8), let chunk = try? JSONDecoder().decode(AudioChunk.self, from: bytes),
+                      !chunk.filename.hasPrefix("/"), !chunk.filename.split(separator: "/").contains(".."),
                       FileManager.default.fileExists(atPath: workspace(meeting.id).appendingPathComponent(chunk.filename).path),
                       !meeting.chunks.contains(where: { $0.id == chunk.id }) else { continue }
                 meeting.chunks.append(chunk)
