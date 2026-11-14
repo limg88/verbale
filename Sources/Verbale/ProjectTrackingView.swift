@@ -50,7 +50,7 @@ struct ProjectAssignmentView: View {
                 Spacer(minLength: 0)
             }.disabled(!tracker.available)
             if let error = tracker.error {
-                HStack { Text(error).font(.callout).foregroundStyle(.orange); if !tracker.available { Button("Riprova lettura") { tracker.reload() } } }
+                HStack { Text(error).font(.callout).foregroundStyle(Palette.warning); if !tracker.available { Button("Riprova lettura") { tracker.reload() } } }
             }
         }
     }
@@ -65,8 +65,8 @@ struct MeetingActionsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Conferma gli impegni da seguire").font(.headline)
             Text("Le proposte restano separate dalle attività confermate. Per registrare un aggiornamento scegli l’attività esistente nella finestra di revisione.").font(.callout).foregroundStyle(.secondary)
-            if tracker.ledger.projectID(for: meeting.id) == nil { Label("Assegna un progetto per confermare le attività.", systemImage: "folder.badge.questionmark").foregroundStyle(.orange) }
-            if meeting.reportNeedsUpdate { Label("Le fonti sono cambiate: rigenera il report operativo prima di confermare.", systemImage: "arrow.clockwise").foregroundStyle(.orange) }
+            if tracker.ledger.projectID(for: meeting.id) == nil { Label("Assegna un progetto per confermare le attività.", systemImage: "folder.badge.questionmark").foregroundStyle(Palette.warning) }
+            if meeting.reportNeedsUpdate { Label("Le fonti sono cambiate: rigenera il report operativo prima di confermare.", systemImage: "arrow.clockwise").foregroundStyle(Palette.warning) }
             if let proposals = meeting.actionProposals, !proposals.isEmpty {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
@@ -83,7 +83,7 @@ struct MeetingActionsView: View {
                                 Text("\(["agreed":"Impegno esplicito", "proposed":"Proposta", "unclear":"Da confermare"][proposal.commitment] ?? "Da confermare") · \(proposal.owner ?? "Da assegnare") · \(proposal.deadline ?? "Scadenza non indicata")").font(.caption).foregroundStyle(.secondary)
                                 if let status = proposal.declaredStatus { Text("Stato dichiarato: " + status).font(.caption) }
                                 let matches = tracker.ledger.suggestedMatches(for: proposal)
-                                if tracker.ledger.action(for: proposal) == nil, !matches.isEmpty { Text("Possibile aggiornamento di: " + matches.map { $0.fields.text }.joined(separator: "; ")).font(.caption).foregroundStyle(.orange) }
+                                if tracker.ledger.action(for: proposal) == nil, !matches.isEmpty { Text("Possibile aggiornamento di: " + matches.map { $0.fields.text }.joined(separator: "; ")).font(.caption).foregroundStyle(Palette.warning) }
                             }.padding(14).background(.background, in: RoundedRectangle(cornerRadius: 10))
                         }
                     }
@@ -143,11 +143,11 @@ struct ProjectFollowUpView: View {
                                 VStack(alignment: .leading, spacing: 7) {
                                     HStack(alignment: .top) {
                                         Text(action.fields.text).fontWeight(.medium).frame(maxWidth: .infinity, alignment: .leading)
-                                        Text(action.fields.status.label).foregroundStyle(action.fields.status == .blocked ? .orange : .secondary)
+                                        Text(action.fields.status.label).foregroundStyle(action.fields.status == .blocked ? Palette.warning : Color.secondary)
                                     }
                                     Text("\(tracker.ledger.projects.first { $0.id == action.projectID }?.name ?? "Progetto") · \(action.fields.owner.isEmpty ? "Da assegnare" : action.fields.owner)").font(.callout).foregroundStyle(.secondary)
                                     HStack {
-                                        if let due = action.fields.dueDate { Text("Scadenza: " + due.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(action.isOverdue(at: Date()) ? .red : .secondary) }
+                                        if let due = action.fields.dueDate { Text((action.isOverdue(at: Date()) ? "Scaduta · " : "Scadenza: ") + due.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(action.isOverdue(at: Date()) ? Palette.danger : Color.secondary) }
                                         else { Text(action.fields.originalDeadline.isEmpty ? "Scadenza non indicata" : "Data da confermare: " + action.fields.originalDeadline).foregroundStyle(.secondary) }
                                         Spacer()
                                         Text("\(action.revisions.count) revisioni · \(Set(action.sources.map(\.meetingID)).count) riunioni").foregroundStyle(.secondary)
@@ -223,7 +223,7 @@ struct ActionEditor: View {
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }.frame(maxHeight: 220)
-            if let failure { Text(failure).foregroundStyle(.orange).font(.callout) }
+            if let failure { Text(failure).foregroundStyle(Palette.warning).font(.callout) }
             HStack {
                 Spacer(); Button("Annulla") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Conferma e salva") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)

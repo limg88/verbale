@@ -41,8 +41,8 @@ struct MeetingReportView: View {
                     } label: { Image(systemName: "doc.on.doc") }.help("Copia report").accessibilityLabel("Copia report")
                 }
             }
-            if let job=model.work(meeting.id,kind:.report),job.state != .completed { Text(job.error ?? job.progress).font(.callout).foregroundStyle(job.state == .failed ? .orange:.secondary) }
-            if meeting.reportNeedsUpdate { Label("La riunione è stata modificata. Rigenera il report per aggiornarlo.", systemImage: "arrow.clockwise").font(.callout).foregroundStyle(.orange) }
+            if let job=model.work(meeting.id,kind:.report),job.state != .completed { Text(job.error ?? job.progress).font(.callout).foregroundStyle(job.state == .failed ? Palette.warning:Color.secondary) }
+            if meeting.reportNeedsUpdate { Label("La riunione è stata modificata. Rigenera il report per aggiornarlo.", systemImage: "arrow.clockwise").font(.callout).foregroundStyle(Palette.warning) }
             if let report = meeting.report {
                 ScrollView {
                     ReportDocumentView(text: report).equatable()

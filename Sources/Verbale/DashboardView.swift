@@ -148,14 +148,14 @@ struct DashboardView: View {
                 Spacer()
                 if id == "session" && model.isRecording { Circle().fill(.red).frame(width: 7, height: 7) }
             }.font(.system(size: 13, weight: model.tab == id ? .semibold : .regular)).padding(10)
-                .foregroundStyle(model.tab == id ? Palette.accent : .primary)
+                .foregroundStyle(model.tab == id ? Palette.accentText : Color.primary)
                 .background(model.tab == id ? Palette.accent.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 9))
         }.buttonStyle(.plain)
     }
     @ViewBuilder private var session: some View {
         VStack(alignment: .leading, spacing: 16) {
             if let error = model.exportError {
-                HStack { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange); Spacer(); Button("Riprova") { model.exportCurrent() }.disabled(model.sessionLocked); Button("Cambia cartella") { model.exportElsewhere() }.disabled(model.sessionLocked) }.font(.callout)
+                HStack { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.warning); Spacer(); Button("Riprova") { model.exportCurrent() }.disabled(model.sessionLocked); Button("Cambia cartella") { model.exportElsewhere() }.disabled(model.sessionLocked) }.font(.callout)
             }
             if model.current == nil {
                 if !prepared {
@@ -228,7 +228,7 @@ struct DashboardView: View {
                     Spacer()
                     Picker("Ascolto", selection: $model.listeningMode) { ForEach(ListeningMode.allCases) { Text($0.label).tag($0) } }.frame(maxWidth: 300)
                 }.disabled(model.sessionLocked)
-                if !model.microphone && !model.system { Label("Attiva almeno una sorgente audio.", systemImage: "exclamationmark.circle").foregroundStyle(.orange).font(.callout) }
+                if !model.microphone && !model.system { Label("Attiva almeno una sorgente audio.", systemImage: "exclamationmark.circle").foregroundStyle(Palette.warning).font(.callout) }
                 HStack(spacing: 10) {
                     Image(systemName: "folder").foregroundStyle(.secondary)
                     Text(model.destination?.path ?? "Scegli dove salvare le riunioni").font(.callout).lineLimit(1).truncationMode(.middle).textSelection(.enabled)

@@ -55,7 +55,7 @@ struct SpeakerAuditView: View {
             if model.learningBusy {
                 HStack { ProgressView().controlSize(.small); Text(model.voiceProgress).font(.caption); Spacer(); Button("Annulla rivalutazione") { model.cancelVoiceAnalysis() } }
             } else if !model.learningSummary.isEmpty { Text(model.learningSummary).font(.caption).foregroundStyle(.secondary) }
-            if !valid { Label("I contenuti sono cambiati: chiudi e ripeti la ricerca prima di applicare le proposte.", systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.orange) }
+            if !valid { Label("I contenuti sono cambiati: chiudi e ripeti la ricerca prima di applicare le proposte.", systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(Palette.warning) }
             if let audit {
                 DisclosureGroup("Avvisi dell’analisi · \(audit.warnings.count)") {
                     ScrollView { VStack(alignment: .leading, spacing: 6) { ForEach(audit.warnings, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) } } }.frame(height: 80)
@@ -86,7 +86,7 @@ struct SpeakerAuditView: View {
                     else { ContentUnavailableView("Nessun altro caso prioritario", systemImage: "checkmark.circle", description: Text("Questo non certifica tutti i nomi. I frammenti incerti restano disponibili in Analisi completa.")) .frame(maxWidth: .infinity, maxHeight: .infinity) }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity).disabled(model.learningBusy)
             }
-            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).lineLimit(3) }
+            if let error = model.error { Text(error).font(.caption).foregroundStyle(Palette.danger).lineLimit(3) }
             HStack {
                 Button("Rivaluta con le conferme") { model.startSpeakerLearning() }.disabled(model.busy || !valid)
                 Text("Audio e analisi restano sul Mac").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Chiudi") { model.stopVoicePlayback(); model.auditReviewVisible = false }.keyboardShortcut(.cancelAction) }
@@ -147,7 +147,7 @@ struct SpeakerAuditView: View {
                 Spacer()
                 if !draft.fullAnalysis { Button("Torna agli estratti") { choose(draft.returnCaseID ?? triage?.cases.first?.groupID) }.font(.caption) }
             }
-            if let caution = group.caution { Text(caution).font(.caption).foregroundStyle(.orange) }
+            if let caution = group.caution { Text(caution).font(.caption).foregroundStyle(Palette.warning) }
             if group.clips.isEmpty { Text("Nessun campione di almeno 3 secondi: verifica i passaggi nella registrazione originale.").font(.caption).foregroundStyle(.secondary) }
             ScrollView(.horizontal) {
                 HStack {

@@ -62,7 +62,7 @@ struct TranscriptRefinementView:View {
                     Button("Applica selezionate") { let selected = state.selected;Task { if await model.applyRefinement(selected) { state.selected = [] } } }.buttonStyle(.borderedProminent).disabled(model.busy || state.selected.isEmpty)
                 }
             } else { Spacer();Text("La trascrizione attuale resta disponibile durante il confronto.").foregroundStyle(.secondary);Spacer() }
-            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            if let error = model.error { Text(error).font(.caption).foregroundStyle(Palette.danger).textSelection(.enabled) }
         }.padding(24).frame(width:800,height:600).background(Color(nsColor:.windowBackgroundColor)).interactiveDismissDisabled(model.busy).onDisappear { model.stopVoicePlayback() }
     }
 }

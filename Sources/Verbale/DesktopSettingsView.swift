@@ -116,7 +116,7 @@ struct DesktopSettingsView: View {
                         Button("Aggiorna rilevamento") { Task { await model.refreshAudioRouting() } }.disabled(model.routingRefreshing)
                         if model.routingRefreshing { ProgressView().controlSize(.small) }
                     }
-                    if !model.routingStatus.isEmpty { Text(model.routingStatus).font(.caption).foregroundStyle(.orange) }
+                    if !model.routingStatus.isEmpty { Text(model.routingStatus).font(.caption).foregroundStyle(Palette.warning) }
                     if model.isRecording,let route = model.recording?.audioRoute {
                         Text("In questa registrazione: "+[route.inputName.map { "microfono "+$0 },route.outputName.map { "uscita "+$0 }].compactMap { $0 }.joined(separator:" · ")).font(.caption).foregroundStyle(.secondary)
                         Text("Le modifiche ai dispositivi si applicano alla prossima registrazione.").font(.caption).foregroundStyle(.secondary)

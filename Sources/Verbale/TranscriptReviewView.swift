@@ -50,7 +50,7 @@ struct TranscriptReviewView: View {
             }
             if !model.viewingRecording {
                 ForEach(RecordingReadiness.missingSourceWarnings(meeting.sources,chunks:meeting.chunks,segments:meeting.segments),id:\.self) { warning in
-                    Label(warning,systemImage:"exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange)
+                    Label(warning,systemImage:"exclamationmark.triangle.fill").font(.callout).foregroundStyle(Palette.warning)
                 }
             }
             if let job=model.work(meeting.id,kind:.transcription),job.state.pending {
@@ -66,7 +66,7 @@ struct TranscriptReviewView: View {
             } else if meeting.state == .failed || meeting.state == .interrupted || model.work(meeting.id,kind:.transcription).map({[.failed,.cancelled].contains($0.state)}) == true {
                 Button("Riprendi trascrizione") { Task { await model.resume() } }.disabled(model.navigationLocked || model.work(meeting.id,kind:.report)?.state.pending == true)
             }
-            if let job=model.work(meeting.id,kind:.transcription),job.state == .failed { Text(job.error ?? "Trascrizione interrotta").font(.callout).foregroundStyle(.orange) }
+            if let job=model.work(meeting.id,kind:.transcription),job.state == .failed { Text(job.error ?? "Trascrizione interrotta").font(.callout).foregroundStyle(Palette.warning) }
             if meeting.segments.isEmpty {
                 ContentUnavailableView(queuedTitle ?? (model.waitingTranscriptionID == meeting.id ? "Attesa fine chiamata Teams" : (model.viewingRecording && model.transcriptionDeferred) ? "Audio in registrazione" : model.viewingRecording ? "In ascolto…" : meeting.state == .processing ? "Trascrizione in corso…" : "Trascrizione in attesa"), systemImage: "waveform", description: Text(queuedTitle != nil ? "Puoi consultare le altre riunioni. I risultati compariranno qui al termine dell’elaborazione." : model.waitingTranscriptionID == meeting.id ? "L’audio è salvato. La trascrizione ripartirà automaticamente quando Teams non segnalerà più la chiamata." : (model.viewingRecording && model.transcriptionDeferred) ? "La trascrizione inizierà al termine della registrazione, per ridurre i consumi durante la call." : model.viewingRecording ? "Il testo comparirà dopo i primi secondi di parlato." : meeting.state == .interrupted || meeting.state == .failed ? "L’audio è salvato. Dopo la call premi Riprendi trascrizione." : meeting.state == .processing ? "Sto elaborando l’audio salvato sul Mac." : "Nessun testo disponibile."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -82,7 +82,7 @@ struct TranscriptReviewView: View {
                                         let attribution = meeting.attribution(for:segment,match:presentation.matches[segment.id],learned:model.speakerAudit?.automaticAssignments?[segment.id.uuidString])
                                         HStack(spacing:6) {
                                             Button { if let id = segment.speakerID { model.focusSpeaker(id) } } label: {
-                                                Text(attribution.name).font(.system(size:12,weight:.semibold)).foregroundStyle(Palette.accent)
+                                                Text(attribution.name).font(.system(size:12,weight:.semibold)).foregroundStyle(Palette.accentText)
                                             }.buttonStyle(.plain).disabled(segment.speakerID == nil).help("Vai alla prima occorrenza di questo interlocutore")
                                             if attribution.state == .uncertain || attribution.state == .unidentified {
                                                 Menu {
@@ -92,7 +92,7 @@ struct TranscriptReviewView: View {
                                                         }
                                                     }
                                                     Button("Assegna o correggi nome…") { state.editing = segment }
-                                                } label: { Image(systemName:"questionmark.circle.fill").foregroundStyle(.orange) }
+                                                } label: { Image(systemName:"questionmark.circle.fill").foregroundStyle(Palette.warning) }
                                                 .menuStyle(.borderlessButton).fixedSize().disabled(model.sessionLocked).help(attribution.detail).accessibilityLabel("Identità da verificare: \(attribution.name)")
                                             } else if attribution.state == .recognized {
                                                 Image(systemName:"checkmark.circle").foregroundStyle(.secondary).help(attribution.detail).accessibilityLabel("Voce riconosciuta")
@@ -211,7 +211,7 @@ private struct SegmentEditor: View {
                     }.frame(maxHeight: 140)
                 }
             }
-            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red) }
+            if let error = model.error { Text(error).font(.caption).foregroundStyle(Palette.danger) }
             HStack {
                 Spacer()
                 Button("Annulla") { dismiss() }.keyboardShortcut(.cancelAction)

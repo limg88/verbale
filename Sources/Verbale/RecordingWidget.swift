@@ -48,7 +48,7 @@ struct RecordingWidget: View {
                     .font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity).padding(.vertical, 5)
             }.buttonStyle(.borderedProminent).tint(model.isRecording ? .red : Palette.accent).disabled(actionDisabled)
             if let error = model.captureWarning ?? model.exportError ?? model.error {
-                Button { model.showMainWindow() } label: { Label(error, systemImage: "exclamationmark.circle").font(.caption).lineLimit(1) }.buttonStyle(.plain).foregroundStyle(.orange)
+                Button { model.showMainWindow() } label: { Label(error, systemImage: "exclamationmark.circle").font(.caption).lineLimit(1) }.buttonStyle(.plain).foregroundStyle(Palette.warning)
             } else if !model.isRecording && !model.readyToRecord && !model.busy && !model.working {
                 Button("Completa la preparazione nella finestra principale →") { model.showMainWindow() }.font(.system(size: 10)).buttonStyle(.plain).foregroundStyle(.secondary)
             } else {

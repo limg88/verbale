@@ -9,7 +9,7 @@ struct MeetingJobsView:View {
             ForEach(model.visibleWork) { job in
                 HStack(spacing:12) {
                     if job.state == .running { ProgressView().controlSize(.small) }
-                    else { Image(systemName:job.state == .failed ? "exclamationmark.triangle":"clock").foregroundStyle(job.state == .failed ? .orange:.secondary) }
+                    else { Image(systemName:job.state == .failed ? "exclamationmark.triangle":"clock").foregroundStyle(job.state == .failed ? Palette.warning:Color.secondary) }
                     VStack(alignment:.leading,spacing:2) {
                         Text((job.kind == .transcription ? "Trascrizione · ":"Report · ")+job.title).font(.callout).lineLimit(1)
                         Text(job.error ?? job.progress).font(.caption).foregroundStyle(.secondary).lineLimit(2)
