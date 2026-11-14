@@ -21,6 +21,10 @@ enum MeetingManagementChecks {
             print("PASS an undecodable meeting manifest is reported instead of silently vanishing")
             meeting.segments = [Segment(source:.system,start:1,end:5,text:"Passaggio di prova",speakerID:"speaker-1")]
             meeting.state = .complete; try store.save(meeting); meeting = try store.export(meeting)
+            let exportedManifest = try JSONCoding.decoder().decode(Meeting.self,from:Data(contentsOf:root.appendingPathComponent(meeting.folderName).appendingPathComponent("meeting.json")))
+            try VoiceChecks.require(exportedManifest.destination.isEmpty && exportedManifest.id == meeting.id,"exported manifest carries an absolute path")
+            try VoiceChecks.require(try store.read(meeting.id).destination == root.path,"internal manifest lost its destination")
+            print("PASS exported manifest is portable while the internal one keeps the destination")
             let id = meeting.id, folder = meeting.folderName
             try meeting.changeTitle("  Titolo aggiornato  "); try store.save(meeting); meeting = try store.export(meeting)
             try VoiceChecks.require(meeting.id == id && meeting.folderName == folder && meeting.title == "Titolo aggiornato","title changed identity or folder")

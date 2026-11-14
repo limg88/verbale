@@ -129,7 +129,10 @@ public final class SessionStore {
         }
         meeting.exported = true
         // Commit marker is written last; earlier failures never report successful export.
-        try writeDocument(JSONCoding.encoder().encode(meeting),"meeting.json")
+        // The exported copy must be portable: it does not carry the absolute folder of this Mac.
+        // The internal manifest keeps it, since it is how the app finds the export again.
+        var portable = meeting; portable.destination = ""
+        try writeDocument(JSONCoding.encoder().encode(portable),"meeting.json")
         try save(meeting)
         return meeting
     }
