@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import tempfile
 
-from buildenv import apply_sdkroot
+from buildenv import apply_sdkroot, reset_stale_cmake
 
 ROOT = Path(__file__).resolve().parent.parent
 PIN = "2eac2e77d9c7ef8899f7a86a46e693ac5ac1a5cd"
@@ -64,6 +64,7 @@ def main():
         run(["git", "-C", source, "submodule", "update", "--init", "third_party/voice-detect.cpp"])
     if subprocess.check_output(["git", "-C", voice, "rev-parse", "HEAD"], text=True).strip() != VOICE:
         raise SystemExit("voice-detect.cpp does not match the lock")
+    if reset_stale_cmake(ROOT / ".build/parakeet", source): args.skip_native = False
     voice_stamp = ROOT / ".build/parakeet/verbale-voice-runtime.json"
     try:
         current_stamp = json.loads(voice_stamp.read_text())
