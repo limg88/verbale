@@ -158,3 +158,52 @@ Note:
 - E-08 usa `CFUserNotificationDisplayAlert` e non `NSAlert`: il modello nasce durante la costruzione della scena SwiftUI e un run loop modale lì dentro abortisce il processo (verificato: SIGABRT al primo tentativo).
 - Con E-01 la riga "Build release, SDK predefinito 27.0" della sezione 2 passa da KO a OK tramite fallback; installare Xcode resta la soluzione pulita.
 - Resta da provare a mano: E-07 con una registrazione reale, E-05/E-06 su un archivio grande.
+
+## 9. Seconda tornata di evolutive (2026-11-14)
+
+Stato finale: check 138/138, self-check UI 147/147, build release OK, probe Android compilato con lint a 0 errori.
+
+**Implementate**
+
+| ID | Cosa è cambiato | Verifica |
+|---|---|---|
+| E-09 | Timeout del report limitato a ≥ 0 prima della conversione | Solo compilazione; il caso non è riproducibile con l'orologio reale |
+| E-10 | 8 indici per ID tollerano duplicati (vince il primo) invece di andare in trap | Check esistenti verdi; nessun check nuovo sul file danneggiato |
+| E-11 | Cartella sessioni riportata a 0700; righe di journal con path assoluto o `..` ignorate; niente `NULL` a `%s` nello shim C | Check esistenti verdi |
+| E-12 | Riunioni con manifest illeggibile segnalate all'avvio, con percorso | Nuovo check nel core |
+| E-13 | Riga di esito finale dell'harness | Output `verbale-checks: all suites passed` |
+| E-14 | Workflow GitHub Actions su runner macOS | **Mai eseguito su GitHub** |
+| E-15 | I pin si leggono dai file lock; `build.py` non riscrive più un file tracciato | Build nativa e check verdi |
+| E-16 | Colori di testo adattivi per avvisi, errori e accento; "Scaduta ·" in parole | Rapporti calcolati (≥ 5:1), non misurati a schermo |
+| E-17 | Bersagli da 24 pt per 5 pulsanti icona; voce di navigazione selezionata esposta | Build + self-check UI |
+| E-19 | Pulsante "Apri Impostazioni di Sistema" negli errori di permesso microfono | Solo compilazione |
+| E-20 | ⌘N nuova riunione, ⌘F archivio; un'etichetta "Stop" corretta | Solo compilazione |
+| E-23 | Cache del verdetto SHA-256 dei modelli; confronto a byte del manifest nel commit | Check verdi; guadagno non misurato |
+| E-30 | Entitlement microfono passato a `codesign` per le firme Developer ID | **Non verificato**: nessuna identità Developer ID |
+| E-35 | Probe Android: rotazione gestita senza ricreare l'activity; richiesta di stop su servizio inattivo | Build e lint offline; nessun dispositivo |
+| E-37 | `IMPLEMENTAZIONE.md` marcato come storico; conteggio check rimosso dal README | — |
+
+**Implementate solo in parte**
+
+| ID | Fatto | Resta |
+|---|---|---|
+| E-17 | Bersagli e tratto selezionato | Motivo visibile sui controlli disabilitati; colonna sessione scorrevole |
+| E-19 | Caso microfono | Errori per contesto, annulla sulla rimozione del marcatore |
+| E-20 | Scorciatoie | Glossario unico dei termini |
+| E-23 | Hash modelli, confronto manifest | Fingerprint nei cicli, scansione parole × segmenti |
+| E-35 | Rotazione, stop | `startForeground` mancante su avvio fallito (serve un dispositivo) |
+
+**Non implementate, con il motivo**
+
+| ID | Motivo |
+|---|---|
+| E-21, E-22 | Toccano il salvataggio durante la registrazione. Senza una prova con registrazione reale il rischio di perdere audio non è accettabile |
+| E-18 | Richiede un delegate di download nuovo e una UI di avanzamento: non verificabile senza scaricare 941 MB |
+| E-24, E-25, E-27 | Lavori L/XL (indice archivio, scomposizione di `AppModel`, migrazione dei test): fuori dal budget di questa sessione |
+| E-26 | Spostare i check fuori dal binario cambia il modo in cui gira il self-check UI: va deciso insieme a E-27 |
+| E-28 | La riformattazione riscrive quasi ogni riga e va fatta da sola, su un branch pulito |
+| E-29 | Logging e costanti: nessun difetto bloccante, rimandato |
+| E-31 | Build universale: serve provare le dylib x86_64 su un Mac Intel |
+| E-32 | Cambia il formato di export: serve la tua scelta sul formato audio |
+| E-33, E-34 | Supporto Windows/Linux: serve la tua scelta tra le tre strade |
+| E-36 | Verifica CVE del pin ggml: ricerca non svolta |
