@@ -68,7 +68,13 @@ struct DashboardView: View {
         .sheet(isPresented: $model.auditReviewVisible) { SpeakerAuditView().environmentObject(model) }
         .sheet(item: $model.voiceEnrollment) { request in VoiceEnrollmentView(request: request).environmentObject(model) }
         .alert("Verbale", isPresented: Binding(get: { model.error != nil && !model.refinementVisible && model.titleEditing == nil && model.pendingRemoval == nil && !model.quietMode && model.voiceEnrollment == nil && !model.auditReviewVisible }, set: { if !$0 { model.error = nil } })) {
-            Button("OK") { model.error = nil }
+            if model.error?.contains("permesso Microfono") == true || model.error?.contains("autorizza il microfono") == true {
+                Button("Apri Impostazioni di Sistema") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") { NSWorkspace.shared.open(url) }
+                    model.error = nil
+                }
+            }
+            Button("OK", role: .cancel) { model.error = nil }
         } message: { Text(model.error ?? "") }
     }
     private var header: some View {
