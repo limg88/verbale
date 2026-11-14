@@ -585,12 +585,20 @@ import VerbaleCore
         guard var meeting = recording, meeting.id == id, !meeting.chunks.contains(where: { $0.id == chunk.id }) else { return }
         meeting.chunks.append(chunk); meeting.duration = max(meeting.duration, chunk.start + chunk.duration); meeting.exported = false
         installRecording(meeting)
-        do { try store.save(meeting) } catch { self.error = error.localizedDescription; if isRecording { Task { await stop() } } }
+        // Capture has already written the chunk file and fsynced its journal row before this callback,
+        // and both stop() and launch recovery replay the journal. Rewriting the whole, ever-growing
+        // manifest for every 5 s chunk is therefore redundant: refresh it at most every 10 s.
+        let now = ProcessInfo.processInfo.systemUptime
+        if meeting.chunks.count == 1 || now - lastChunkManifestSave >= 10 {
+            lastChunkManifestSave = now
+            do { try store.save(meeting) } catch { self.error = error.localizedDescription; if isRecording { Task { await stop() } } }
+        }
         exportRecording()
         // stop() replays the durable journal and owns final processing. A late
         // capture callback must not race deferred model loading after Stop.
         if !failedProcessing && isRecording { scheduleProcessing() }
     }
+    private var lastChunkManifestSave: TimeInterval = 0
     private func scheduleProcessing() {
         guard processing == nil, !transcriptionDeferred else { return }
         processing = Task(priority: .utility) { [weak self] in
@@ -1042,8 +1050,12 @@ extension AppModel {
             receive(chunk,id:meeting.id)
         }
         await Task.yield()
-        let pending = try store.read(meeting.id)
+        // The manifest is refreshed at most every 10 s while recording; chunks are durable through the
+        // journal, which is what stop() and launch recovery replay.
+        let onDisk = try store.read(meeting.id), pending = try store.recover(onDisk)
+        let manifestThrottled = onDisk.chunks.count < 3
         var checks = ["deferred recording persists all chunks without ASR":pending.chunks.count == 3 && pending.chunks.allSatisfy { !$0.processed } && processing == nil && error == nil && !working]
+        checks["chunk callbacks do not rewrite the manifest for every chunk"] = manifestThrottled && onDisk.chunks.count >= 1
         isRecording = false
         current?.state = .processing
         let late = AudioChunk(source:.system,start:0.3,sampleCount:1600,filename:"audio/deferred-late.caf")
