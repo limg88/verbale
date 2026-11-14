@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import tempfile
 
+from buildenv import apply_sdkroot
+
 ROOT = Path(__file__).resolve().parent.parent
 PIN = "2eac2e77d9c7ef8899f7a86a46e693ac5ac1a5cd"
 VOICE = "bca46bcbc2fe68169c2d7c414e9b290a7cb89911"
@@ -78,7 +80,7 @@ def main():
         run(["cmake", "--build", ROOT / ".build/parakeet", "--target", "parakeet", "-j", "6"])
         voice_stamp.write_text(json.dumps({"parakeet": PIN, "voice_detect": VOICE}))
     config = "debug" if args.debug else "release"
-    env = os.environ.copy()
+    env = apply_sdkroot(os.environ.copy())
     env["CLANG_MODULE_CACHE_PATH"] = str(ROOT / ".build/clang")
     env["SWIFTPM_MODULECACHE_OVERRIDE"] = str(ROOT / ".build/clang")
     common = ["swift", "build", "--disable-sandbox", "--cache-path", ".build/cache", "--scratch-path", ".build/swift", "-c", config, "--jobs", str(max(1,args.jobs))]
