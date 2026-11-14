@@ -66,7 +66,9 @@ import VerbaleCore
     @Published var reportBusy = false
     @Published var reportProgress = ""
     private var reportTask: Task<Void, Never>?
-    @Published var status = "Scegli la destinazione e prepara i modelli."
+    // Reassigned every second by timers, usually with the same text: publish only real changes
+    // so the whole dashboard is not re-rendered while idle.
+    var status = "Scegli la destinazione e prepara i modelli." { willSet { if newValue != status { objectWillChange.send() } } }
     private var meetingExportErrors:[UUID:String] = [:]
     @Published var exportError: String?
     @Published var error: String?
@@ -93,7 +95,7 @@ import VerbaleCore
             configureTeamsAutomation()
         }
     }
-    @Published var teamsStatus = "Automazione Teams disattivata"
+    var teamsStatus = "Automazione Teams disattivata" { willSet { if newValue != teamsStatus { objectWillChange.send() } } }
     @Published var quietMode = false
     @Published var widgetPinned = true {
         didSet { widgetPanel?.level = widgetPinned ? .floating : .normal }
