@@ -92,7 +92,8 @@ public struct Meeting: Codable, Identifiable, Sendable {
     public init(title: String, sources: [AudioSource], destination: URL, keepAudio: Bool) {
         self.title = title.isEmpty ? "Riunione" : title
         self.sources = sources; self.destination = destination.path; self.keepAudio = keepAudio
-        let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+        // Pin locale and calendar: the system ones can yield Buddhist years or non-ASCII digits.
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.calendar = Calendar(identifier: .gregorian); formatter.dateFormat = "yyyy-MM-dd_HHmmss"
         let safe = self.title.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" ? String($0) : "_" }.joined()
         folderName = "\(formatter.string(from: started))_\(safe.prefix(60))_\(id.uuidString.prefix(8))"
     }

@@ -8,6 +8,10 @@ enum MeetingManagementChecks {
         do {
             let store = try SessionStore(root:root.appendingPathComponent("sessions"))
             var meeting = Meeting(title:"Titolo iniziale",sources:[.system],destination:root,keepAudio:false)
+            // Reproduce with: sh scripts/test.sh -AppleLocale 'th_TH@calendar=buddhist'
+            let stamp = DateFormatter(); stamp.locale = Locale(identifier:"en_US_POSIX"); stamp.calendar = Calendar(identifier:.gregorian); stamp.dateFormat = "yyyy-MM-dd_HHmmss"
+            try VoiceChecks.require(meeting.folderName.hasPrefix(stamp.string(from:meeting.started)+"_"),"export folder date depends on the system calendar: "+meeting.folderName)
+            print("PASS export folder name uses a Gregorian ASCII date under any system locale")
             meeting.segments = [Segment(source:.system,start:1,end:5,text:"Passaggio di prova",speakerID:"speaker-1")]
             meeting.state = .complete; try store.save(meeting); meeting = try store.export(meeting)
             let id = meeting.id, folder = meeting.folderName
