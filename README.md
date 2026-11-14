@@ -115,7 +115,7 @@ sh scripts/test.sh
 python3 scripts/build.py --skip-native --dmg
 ```
 
-Lo script recupera il runtime e il submodule ggml fissati se assenti; non installa strumenti globali e non aggiorna automaticamente le versioni. Il repository GitHub è privato e richiede un accesso autorizzato per il clone.
+Lo script recupera il runtime e il submodule ggml fissati se assenti; non installa strumenti globali e non aggiorna automaticamente le versioni.
 
 L’icona dell’app è la V con onda sonora verde menta. Il master è `Resources/AppIcon.png`; la build genera `AppIcon.icns` con tutte le risoluzioni macOS tramite `sips` e `iconutil` e lo include anche nel pacchetto Preview.
 
