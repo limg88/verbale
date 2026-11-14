@@ -17,8 +17,11 @@ public final class SessionStore {
         try JSONCoding.encoder().encode(meeting).write(to: path.appendingPathComponent("meeting.json"), options: .atomic)
     }
     public func list() throws -> [Meeting] {
-        try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).compactMap {
-            try? JSONCoding.decoder().decode(Meeting.self, from: Data(contentsOf: $0.appendingPathComponent("meeting.json")))
+        try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).compactMap { folder -> Meeting? in
+            let manifest = folder.appendingPathComponent("meeting.json")
+            guard FileManager.default.fileExists(atPath: manifest.path) else { return nil }
+            do { return try JSONCoding.decoder().decode(Meeting.self, from: Data(contentsOf: manifest)) }
+            catch { CoreLog.warning("Session \(folder.lastPathComponent) skipped: manifest not readable (\(type(of: error)))"); return nil }
         }.sorted { $0.started > $1.started }
     }
     /// Session folders whose manifest exists but cannot be decoded. `list()` skips them, so the

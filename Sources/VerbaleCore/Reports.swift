@@ -9,7 +9,10 @@ public enum Keychain {
     public static func read(account: String = "gateway-token") -> String {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "io.verbale.reports", kSecAttrAccount as String: account, kSecReturnData as String: true]
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return "" }
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // "Not found" is the normal first-run case; anything else (locked or denied keychain) is worth a trace.
+        if status != errSecSuccess && status != errSecItemNotFound { CoreLog.warning("Keychain read for \(account) failed with OSStatus \(status)") }
+        guard status == errSecSuccess, let data = result as? Data else { return "" }
         return String(data: data, encoding: .utf8) ?? ""
     }
     public static func save(_ secret: String, account: String = "gateway-token") throws {
