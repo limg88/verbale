@@ -392,10 +392,25 @@ import VerbaleCore
         if isRecording {showRecording();return}
         refinementDraft = nil; learningSummary = ""; speakerAudit = nil; current = nil; meetingSection = "transcript"; speakersExpanded = false; voiceMatchesExpanded = false; focusedSegmentID = nil; focusNotes = false; title = ""; tab = "session"; status = "Pronto per una nuova conversazione."
     }
+    /// Startup cannot continue without the data folder: explain why and where instead of crashing.
+    private static func failStartup(_ title: String, _ error: Error, dataRoot: URL?) -> Never {
+        let folder = dataRoot ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Verbale", isDirectory: true)
+        let message = "\(error.localizedDescription)\n\nCartella dati: \(folder.path)\n\nVerifica lo spazio su disco e i permessi della cartella, poi riapri Verbale."
+        // The model is created while SwiftUI builds the scene, where a modal AppKit run loop
+        // aborts the process; this system alert blocks without re-entering the app's event loop.
+        var response: CFOptionFlags = 0
+        CFUserNotificationDisplayAlert(0, kCFUserNotificationStopAlertLevel, nil, nil, nil, title as CFString, message as CFString, "Esci" as CFString, "Mostra nel Finder" as CFString, nil, &response)
+        if response & 0x3 == kCFUserNotificationAlternateResponse {
+            var visible = folder
+            while !FileManager.default.fileExists(atPath: visible.path) && visible.path != "/" { visible.deleteLastPathComponent() }
+            NSWorkspace.shared.activateFileViewerSelecting([visible])
+        }
+        exit(1)
+    }
     init() {
         let previewRoot = (Bundle.main.object(forInfoDictionaryKey: "VerbalePreviewDataRoot") as? String).map { URL(fileURLWithPath: $0, isDirectory: true) }
         do { store = try SessionStore(root: previewRoot?.appendingPathComponent("Sessions")); models = try ModelManager(directory: previewRoot?.appendingPathComponent("Models")) }
-        catch { fatalError("Impossibile creare la cartella dati Verbale: \(error)") }
+        catch { Self.failStartup("Impossibile creare la cartella dati di Verbale", error, dataRoot: previewRoot) }
         projectTracker = ProjectTracker(file: store.root.deletingLastPathComponent().appendingPathComponent("project-ledger.json"))
         do {
             workDisk=try MeetingWorkDisk(root:store.root)
@@ -405,7 +420,7 @@ import VerbaleCore
             })
             workQueue=try MeetingWorkQueue(file:store.root.deletingLastPathComponent().appendingPathComponent("work-queue.json"),execute:{ job,progress in try await processor.run(job,progress:progress) })
             workJobs=workQueue.initialSnapshot
-        } catch { fatalError("Impossibile preparare la coda: \(error)") }
+        } catch { Self.failStartup("Impossibile preparare la coda di elaborazione di Verbale", error, dataRoot: previewRoot) }
         if previewRoot == nil {
             Task { [self] in
                 await workQueue.start(observe:{ [weak self] jobs in Task { @MainActor in self?.acceptWork(jobs) } })
