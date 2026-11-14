@@ -113,7 +113,7 @@ struct TranscriptReviewView: View {
                                         }
                                     } label: { Image(systemName: "person.crop.circle.badge.plus") }
                                         .menuStyle(.borderlessButton).fixedSize().disabled(model.sessionLocked).help("Crea un profilo vocale dai passaggi registrati").accessibilityLabel("Azioni sulla voce di questo passaggio")
-                                    Button { state.editing = segment } label: { Image(systemName: "pencil") }
+                                    Button { state.editing = segment } label: { Image(systemName: "pencil").iconHitTarget() }
                                         .buttonStyle(.plain).disabled(model.sessionLocked).help("Correggi testo o interlocutore")
                                         .accessibilityLabel("Correggi segmento a \(timecode(segment.start))")
                                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -259,7 +259,7 @@ private struct SpeakerNameRow: View {
                         .menuStyle(.borderlessButton).fixedSize().help("Profili vocali di questo interlocutore").accessibilityLabel("Profili vocali di questo interlocutore")
                         .sheet(isPresented:$assigningProfile) { VoiceProfileAssignmentView(meetingID:meetingID,segmentID:segment.id,speakerGroupID:speakerID).environmentObject(model) }
                 }
-                Button { draft.text = name; draft.editing = true; focused = true } label: { Image(systemName:"pencil") }.buttonStyle(.plain).help("Modifica il nome in tutti i passaggi di questa persona").accessibilityLabel("Modifica nome dell’interlocutore")
+                Button { draft.text = name; draft.editing = true; focused = true } label: { Image(systemName:"pencil").iconHitTarget() }.buttonStyle(.plain).help("Modifica il nome in tutti i passaggi di questa persona").accessibilityLabel("Modifica nome dell’interlocutore")
             }
         }.font(.callout).disabled(model.sessionLocked)
             .onChange(of:name) { _,value in if !draft.editing { draft.text = value } }

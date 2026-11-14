@@ -21,6 +21,11 @@ enum Palette {
     static let hero = LinearGradient(colors: [Color(red: 0.26, green: 0.22, blue: 0.66), Color(red: 0.35, green: 0.33, blue: 0.83), Color(red: 0.23, green: 0.49, blue: 0.69)], startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 
+extension View {
+    /// Gives a bare icon button a pointer target of at least 24×24 pt (WCAG 2.5.8).
+    func iconHitTarget() -> some View { frame(minWidth: 24, minHeight: 24).contentShape(Rectangle()) }
+}
+
 struct SoundWaveMark: Shape {
     func path(in rect: CGRect) -> Path {
         func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {

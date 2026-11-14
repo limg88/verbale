@@ -77,7 +77,7 @@ struct DashboardView: View {
                 HStack {
                     Text(title).font(.system(size:21,weight:.semibold)).lineLimit(1).help(title)
                     if model.tab == "session", let meeting = model.current, !model.viewingRecording {
-                        Button { model.editMeetingTitle(meeting) } label: { Image(systemName:"pencil") }.buttonStyle(.plain).help("Modifica titolo").accessibilityLabel("Modifica titolo").disabled(!model.canManageMeeting(meeting))
+                        Button { model.editMeetingTitle(meeting) } label: { Image(systemName:"pencil").iconHitTarget() }.buttonStyle(.plain).help("Modifica titolo").accessibilityLabel("Modifica titolo").disabled(!model.canManageMeeting(meeting))
                     }
                 }
                 if model.tab == "session", let meeting = model.current {
@@ -150,7 +150,7 @@ struct DashboardView: View {
             }.font(.system(size: 13, weight: model.tab == id ? .semibold : .regular)).padding(10)
                 .foregroundStyle(model.tab == id ? Palette.accentText : Color.primary)
                 .background(model.tab == id ? Palette.accent.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 9))
-        }.buttonStyle(.plain)
+        }.buttonStyle(.plain).accessibilityAddTraits(model.tab == id ? .isSelected : [])
     }
     @ViewBuilder private var session: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -251,7 +251,7 @@ struct DashboardView: View {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Cerca in titoli, trascrizioni e note", text: $viewState.query).textFieldStyle(.plain)
-                if !viewState.query.isEmpty { Button { viewState.query = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).help("Cancella ricerca").accessibilityLabel("Cancella ricerca") }
+                if !viewState.query.isEmpty { Button { viewState.query = "" } label: { Image(systemName: "xmark.circle.fill").iconHitTarget() }.buttonStyle(.plain).help("Cancella ricerca").accessibilityLabel("Cancella ricerca") }
             }.padding(12).background(.background, in: RoundedRectangle(cornerRadius: 10))
             Text("\(results.count) riunioni").font(.callout).foregroundStyle(.secondary)
             if results.isEmpty {
