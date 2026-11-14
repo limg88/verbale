@@ -345,7 +345,7 @@ private final class ReportProtocol: URLProtocol {
             try tests.setUpWithError(); defer { try? tests.tearDownWithError() }
             try await tests.testReportRequestIncludesNotesAndResolvesSources(); print("PASS report generation with notes and source links (mock transport)")
         } catch { failures += 1; print("FAIL report generation: \(error)") }
-        print("\(cases.count + 1) checks, \(failures) failures")
+        print("\(cases.count + 1) store checks, \(failures) failures so far")
         failures += await ReportChecks.run()
         failures += ProjectTrackingChecks.run()
         failures += await OperationalReportChecks.run()
@@ -363,6 +363,7 @@ private final class ReportProtocol: URLProtocol {
         failures += TranscriptRefinementChecks.run()
         failures += await TranscriptRefinementChecks.lifecycle()
         failures += AudioRoutingChecks.run()
+        print(failures == 0 ? "verbale-checks: all suites passed" : "verbale-checks: \(failures) FAILURES")
         if failures > 0 { exit(1) }
     }
 }
