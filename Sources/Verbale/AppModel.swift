@@ -405,7 +405,7 @@ import VerbaleCore
             workJobs=workQueue.initialSnapshot
         } catch { fatalError("Impossibile preparare la coda: \(error)") }
         if previewRoot == nil {
-            Task {
+            Task { [self] in
                 await workQueue.start(observe:{ [weak self] jobs in Task { @MainActor in self?.acceptWork(jobs) } })
                 if let warning=await workQueue.restorationWarning() {self.error=warning}
                 let existing=await workQueue.snapshot()
