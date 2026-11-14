@@ -32,4 +32,4 @@ Attenzione agli accoppiamenti: file "solo Foundation" come `MeetingWorkProcessor
 
 ## Formato audio dell'export
 
-L'audio viene salvato in blocchi da 5 secondi (`audio/<sorgente>_<uuid>.caf`), non in un file per riunione, e la cartella esportata è anche la sorgente da cui l'app rilegge l'audio quando la copia interna è stata eliminata. Convertire i blocchi in WAV al posto dei `.caf` tocca quindi i lettori di recupero e la verifica a digest delle copie. La scelta tra "blocchi WAV" e "un WAV unico per sorgente in aggiunta ai blocchi" è ancora aperta.
+L'audio viene salvato in blocchi da 5 secondi (`audio/<sorgente>_<uuid>.caf`), e la cartella esportata è anche la sorgente da cui l'app rilegge l'audio quando la copia interna è stata eliminata: i blocchi restano quindi in formato `.caf`. A registrazione conclusa l'export aggiunge un file riproducibile ovunque per ogni sorgente, `audio/microfono.wav` e `audio/sistema.wav` (PCM 16 bit, 16 kHz, mono), con i buchi resi come silenzio. Lo spazio occupato dall'audio esportato cresce di circa 115 MB per ora e per sorgente.

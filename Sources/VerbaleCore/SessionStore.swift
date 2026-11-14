@@ -127,6 +127,14 @@ public final class SessionStore {
                 if let cleaned = chunk.cleanedFilename { try copyArtifact(cleaned, meeting: meeting, target: target) }
             }
         }
+        // Once the recording is over, add a playable file per source. It is a convenience copy:
+        // a failure here must not fail the export of the durable artifacts.
+        if meeting.keepAudio && !reuseArtifacts && meeting.state != .recording {
+            for source in meeting.sources {
+                do { try PlayableAudio.write(meeting.chunks, source: source, folder: target) }
+                catch { CoreLog.warning("Playable audio for \(source.rawValue) not written (\(type(of: error)))") }
+            }
+        }
         meeting.exported = true
         // Commit marker is written last; earlier failures never report successful export.
         // The exported copy must be portable: it does not carry the absolute folder of this Mac.

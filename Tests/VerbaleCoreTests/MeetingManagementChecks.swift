@@ -25,6 +25,26 @@ enum MeetingManagementChecks {
             try VoiceChecks.require(exportedManifest.destination.isEmpty && exportedManifest.id == meeting.id,"exported manifest carries an absolute path")
             try VoiceChecks.require(try store.read(meeting.id).destination == root.path,"internal manifest lost its destination")
             print("PASS exported manifest is portable while the internal one keeps the destination")
+            // A separate store and destination: the archive assertions below count the meetings in `store`.
+            let audioStore = try SessionStore(root:root.appendingPathComponent("audio-sessions")), audioOut = root.appendingPathComponent("audio-out")
+            try FileManager.default.createDirectory(at:audioOut,withIntermediateDirectories:true)
+            var audible = Meeting(title:"Audio unico",sources:[.system],destination:audioOut,keepAudio:true)
+            // Two chunks with a one-second hole between them: the hole must become silence.
+            for (index,start) in [0.0,2.0].enumerated() {
+                let chunk = AudioChunk(source:.system,start:start,sampleCount:16000,filename:"audio/system_\(index).caf")
+                try FileManager.default.createDirectory(at:audioStore.workspace(audible.id).appendingPathComponent("audio"),withIntermediateDirectories:true)
+                try AudioFiles.write([Float](repeating:index == 0 ? 0.25 : -0.25,count:16000),to:audioStore.workspace(audible.id).appendingPathComponent(chunk.filename))
+                audible.chunks.append(chunk)
+            }
+            audible.state = .recording; try audioStore.save(audible); audible = try audioStore.export(audible)
+            let wav = audioOut.appendingPathComponent(audible.folderName).appendingPathComponent("audio/sistema.wav")
+            try VoiceChecks.require(!FileManager.default.fileExists(atPath:wav.path),"playable audio written while still recording")
+            audible.state = .complete; audible = try audioStore.export(audible)
+            let bytes = try Data(contentsOf:wav), played = try AudioFiles.samples(wav)
+            try VoiceChecks.require(bytes.count == 44 + 48000*2 && String(decoding:bytes.prefix(4),as:UTF8.self) == "RIFF","unexpected WAV size or header: \(bytes.count)")
+            try VoiceChecks.require(played.count == 48000 && abs(played[8000]-0.25) < 0.01 && abs(played[24000]) < 0.001 && abs(played[40000]+0.25) < 0.01,"WAV timeline does not match the chunks")
+            try VoiceChecks.require(FileManager.default.fileExists(atPath:audioOut.appendingPathComponent(audible.folderName).appendingPathComponent("audio/system_0.caf").path),"chunk files must stay")
+            print("PASS export adds one playable WAV per source with gaps as silence, keeping the chunks")
             let id = meeting.id, folder = meeting.folderName
             try meeting.changeTitle("  Titolo aggiornato  "); try store.save(meeting); meeting = try store.export(meeting)
             try VoiceChecks.require(meeting.id == id && meeting.folderName == folder && meeting.title == "Titolo aggiornato","title changed identity or folder")
