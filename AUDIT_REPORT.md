@@ -210,12 +210,12 @@ Stato finale: check 138/138, self-check UI 147/147, build release OK, probe Andr
 
 ## 10. Terza tornata (2026-11-14)
 
-Stato: check 139/139, self-check UI 147/147, build nativa completa OK.
+Stato: check 139/139, self-check UI 148/148, build nativa completa OK.
 
 | ID | Esito | Dettaglio |
 |---|---|---|
 | E-22 | Fatto | Decodifica e scrittura dell'audio dei blocchi fuori dal main in modalità "durante la registrazione". **Da provare con una registrazione reale in quella modalità** |
-| E-21 | **Annullato** | Limitare il salvataggio del manifest a ogni 10 s fa fallire il self-check esistente "deferred recording persists all chunks without ASR", che richiede il manifest completo su disco dopo ogni blocco. I blocchi restano comunque durevoli nel journal, ma il check codifica un invariante voluto: serve una decisione prima di cambiarlo |
+| E-21 | Fatto (approvato) | Durante la registrazione il manifest viene riscritto al massimo ogni 10 s invece che a ogni blocco; i blocchi restano durevoli nel journal, riletto da `stop()` e dal recupero all'avvio. Il self-check "deferred recording persists all chunks without ASR" ora verifica la durabilità tramite journal, e un check nuovo verifica il throttling. **Da provare con una registrazione reale, inclusa una chiusura forzata a metà** |
 | E-29 | In parte | `CoreLog`; tracciati manifest illeggibili e letture fallite del Portachiavi. Restano gli altri `try?` e la logica basata su stringhe |
 | E-32 | In parte | `meeting.json` esportato senza percorso assoluto (nuovo check). Formato audio invariato: i blocchi `.caf` esportati sono anche la sorgente di recupero dell'app, vedi `docs/WINDOWS-PORT.md` |
 | E-33 | Preparazione | Guardie di portabilità nel core e piano in `docs/WINDOWS-PORT.md`. Nulla compilato su Windows o Linux |
