@@ -455,6 +455,10 @@ import VerbaleCore
         do { meetings = try store.list().map { meeting in
             if meeting.state == .recording || meeting.state == .processing { return (try? store.recover(meeting)) ?? meeting }; return meeting
         } } catch { self.error = error.localizedDescription }
+        let unreadable = store.unreadableSessions()
+        if !unreadable.isEmpty {
+            self.error = (unreadable.count == 1 ? "Una riunione in archivio non è leggibile e non viene mostrata." : "\(unreadable.count) riunioni in archivio non sono leggibili e non vengono mostrate.") + " I file non sono stati modificati e restano in:\n" + unreadable.map(\.path).prefix(3).joined(separator: "\n")
+        }
     }
     func chooseDestination() {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true

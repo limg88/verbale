@@ -21,6 +21,16 @@ public final class SessionStore {
             try? JSONCoding.decoder().decode(Meeting.self, from: Data(contentsOf: $0.appendingPathComponent("meeting.json")))
         }.sorted { $0.started > $1.started }
     }
+    /// Session folders whose manifest exists but cannot be decoded. `list()` skips them, so the
+    /// caller must tell the user: the recording is still on disk even though it is not shown.
+    public func unreadableSessions() -> [URL] {
+        let folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        return folders.filter { folder in
+            let manifest = folder.appendingPathComponent("meeting.json")
+            guard FileManager.default.fileExists(atPath: manifest.path) else { return false }
+            return (try? JSONCoding.decoder().decode(Meeting.self, from: Data(contentsOf: manifest))) == nil
+        }
+    }
     public func read(_ id: UUID) throws -> Meeting {
         try JSONCoding.decoder().decode(Meeting.self, from: Data(contentsOf: workspace(id).appendingPathComponent("meeting.json")))
     }

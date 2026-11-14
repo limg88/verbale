@@ -12,6 +12,13 @@ enum MeetingManagementChecks {
             let stamp = DateFormatter(); stamp.locale = Locale(identifier:"en_US_POSIX"); stamp.calendar = Calendar(identifier:.gregorian); stamp.dateFormat = "yyyy-MM-dd_HHmmss"
             try VoiceChecks.require(meeting.folderName.hasPrefix(stamp.string(from:meeting.started)+"_"),"export folder date depends on the system calendar: "+meeting.folderName)
             print("PASS export folder name uses a Gregorian ASCII date under any system locale")
+            let damaged = store.root.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at:damaged,withIntermediateDirectories:true)
+            try Data("{ not json".utf8).write(to:damaged.appendingPathComponent("meeting.json"))
+            try VoiceChecks.require(store.unreadableSessions().map(\.lastPathComponent) == [damaged.lastPathComponent],"damaged manifest not reported")
+            try VoiceChecks.require(try store.list().isEmpty,"damaged manifest listed")
+            try FileManager.default.removeItem(at:damaged)
+            print("PASS an undecodable meeting manifest is reported instead of silently vanishing")
             meeting.segments = [Segment(source:.system,start:1,end:5,text:"Passaggio di prova",speakerID:"speaker-1")]
             meeting.state = .complete; try store.save(meeting); meeting = try store.export(meeting)
             let id = meeting.id, folder = meeting.folderName
