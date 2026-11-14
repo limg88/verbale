@@ -30,7 +30,13 @@ enum ProjectReportRenderer {
         return try SummaryInput(text:prefix+ProjectEvidence(facts:selected).encoded()+suffix,refs:Set(selected.flatMap(\.refs)))
     }
     static func render(_ evidence:ProjectEvidence,overview:[ProjectEvidence.Item])->String {
-        var sections = ["## Sintesi per il project manager\n\n"+(overview.isEmpty ? "Non emersi elementi sufficienti dalle fonti disponibili.":overview.map { "- "+($0.refs.contains("N") ? "Nota personale — ":"")+plain($0.text)+" "+citations($0) }.joined(separator:"\n"))]
+        // Split into typed steps: as one expression this exceeded the type-checker's time limit on Swift 6.1.
+        let overviewLines: [String] = overview.map { item -> String in
+            let prefix: String = item.refs.contains("N") ? "Nota personale — " : ""
+            return "- " + prefix + plain(item.text) + " " + citations(item)
+        }
+        let overviewText: String = overview.isEmpty ? "Non emersi elementi sufficienti dalle fonti disponibili." : overviewLines.joined(separator:"\n")
+        var sections: [String] = ["## Sintesi per il project manager\n\n" + overviewText]
         for (title,kinds,_) in ReportComposition.definitions {
             let items = evidence.facts.filter { kinds.contains($0.kind) }
             if items.isEmpty && title == "Note personali" { continue }
