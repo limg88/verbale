@@ -1,9 +1,16 @@
 import SwiftUI
 import AppKit
+import Combine
 import VerbaleCore
 
 private final class DesktopNavigationState: ObservableObject {
     @Published var query = ""
+    /// The full-text archive search runs on this value, not on every keystroke.
+    @Published private(set) var search = ""
+    init() {
+        $query.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .debounce(for: .milliseconds(250), scheduler: RunLoop.main).removeDuplicates().assign(to: &$search)
+    }
 }
 struct DashboardView: View {
     @EnvironmentObject var model: AppModel
@@ -19,7 +26,7 @@ struct DashboardView: View {
         }
     }
     private var filteredMeetings: [Meeting] {
-        let text = viewState.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = viewState.search
         return model.meetings.filter { text.isEmpty || $0.title.localizedCaseInsensitiveContains(text) || $0.notes.localizedCaseInsensitiveContains(text) || $0.segments.contains { $0.text.localizedCaseInsensitiveContains(text) } }
     }
     var body: some View {
@@ -239,18 +246,19 @@ struct DashboardView: View {
         }
     }
     private var archive: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let results = filteredMeetings, searching = !viewState.search.isEmpty
+        return VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Cerca in titoli, trascrizioni e note", text: $viewState.query).textFieldStyle(.plain)
                 if !viewState.query.isEmpty { Button { viewState.query = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).help("Cancella ricerca").accessibilityLabel("Cancella ricerca") }
             }.padding(12).background(.background, in: RoundedRectangle(cornerRadius: 10))
-            Text("\(filteredMeetings.count) riunioni").font(.callout).foregroundStyle(.secondary)
-            if filteredMeetings.isEmpty {
-                ContentUnavailableView(viewState.query.isEmpty ? "Nessuna riunione" : "Nessun risultato", systemImage: viewState.query.isEmpty ? "tray" : "magnifyingglass", description: Text(viewState.query.isEmpty ? "Le registrazioni salvate compariranno qui." : "Prova un altro titolo o una parola della conversazione."))
+            Text("\(results.count) riunioni").font(.callout).foregroundStyle(.secondary)
+            if results.isEmpty {
+                ContentUnavailableView(!searching ? "Nessuna riunione" : "Nessun risultato", systemImage: !searching ? "tray" : "magnifyingglass", description: Text(!searching ? "Le registrazioni salvate compariranno qui." : "Prova un altro titolo o una parola della conversazione."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(filteredMeetings) { meeting in
+                List(results) { meeting in
                     HStack {
                     Button { model.open(meeting) } label: {
                         HStack(spacing: 14) {
