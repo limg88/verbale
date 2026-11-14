@@ -138,3 +138,23 @@ Ordinate per rapporto impatto/effort. ⚡ = quick win. ⚠ = "PROBLEMATICA – r
 | A8 | Self-check UI eseguito sul profilo isolato `Verbale Preview`; l'app `dist/Verbale.app` in esecuzione non è stata toccata | — |
 
 Log dell'audit: `.build/audit/` (ignorata da git).
+
+## 8. Evolutive implementate (approvate il 2026-11-14)
+
+Stato dopo questa fase: check 137/137, self-check UI 147/147 (un check nuovo), build e test verdi **senza** impostare `SDKROOT` a mano.
+
+| ID | Cosa è cambiato | Commit | Verifica |
+|---|---|---|---|
+| E-01 | `scripts/buildenv.py`: `build.py` e `test.sh` provano l'SDK predefinito e, se non compila SwiftUI e `SDKROOT` non è impostato, usano l'SDK installato più recente che funziona | `b3f5ba8` | `sh scripts/test.sh` e `build.py` senza `SDKROOT`: OK, con nota "uso MacOSX26.5.sdk" |
+| E-02 | Le cartelle di build CMake configurate per un altro percorso vengono ricreate. `--fresh` non bastava: i file generati (shader Metal) tenevano il path vecchio | `d4f1068` | Cache `echo` e `parakeet` riportate al vecchio percorso: ricostruzione completa riuscita |
+| E-03 | `analysis-comu/` in `.gitignore`; tracciati 14 `docs/QA-*.md` e `mobile/android-probe` (solo sorgenti, 24 file). I ref `refs/codex/…` con l'APK da 175 MB **non** sono stati toccati | `bb23cab` | `git status` pulito; nessun segreto nei file aggiunti (grep) |
+| E-04 | `status` e `teamsStatus` pubblicano solo se il testo cambia. `elapsed` cambia davvero ogni secondo e resta com'è | `bc45164` | Nuovo self-check UI: 100 riassegnazioni uguali → 0 notifiche |
+| E-05 | Ricerca archivio calcolata una volta per render, su query con debounce di 250 ms | `a6aee67` | Build + self-check UI. Guadagno non misurato |
+| E-06 | `valid` e `triage` di `SpeakerAuditView` memorizzati per un passaggio di render | `6a5e093` | Build + self-check UI. Guadagno non misurato |
+| E-07 | Conferma prima di uscire durante una registrazione | `c8af8b0` | Solo compilazione e lettura: **non provato a runtime** (nessuna registrazione live nell'audit) |
+| E-08 | Avviso di sistema con errore, cartella e "Mostra nel Finder" al posto di `fatalError` | `50133ca` | Simulato con `Sessions` come file: il processo resta in attesa dell'avviso invece di andare in crash |
+
+Note:
+- E-08 usa `CFUserNotificationDisplayAlert` e non `NSAlert`: il modello nasce durante la costruzione della scena SwiftUI e un run loop modale lì dentro abortisce il processo (verificato: SIGABRT al primo tentativo).
+- Con E-01 la riga "Build release, SDK predefinito 27.0" della sezione 2 passa da KO a OK tramite fallback; installare Xcode resta la soluzione pulita.
+- Resta da provare a mano: E-07 con una registrazione reale, E-05/E-06 su un archivio grande.
