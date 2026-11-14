@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Build the pinned standalone WebRTC AEC3 and Verbale's C ABI adapter."""
+import json
 from pathlib import Path
 import subprocess
 
 from buildenv import reset_stale_cmake
 
 ROOT = Path(__file__).resolve().parent.parent
-PIN = "2cec2f52e26646f93bd2d5498bbabf59cba18da9"
+# native/echo/runtime-lock.json is the single source of truth for the pinned revision.
+PIN = json.loads((ROOT / "native/echo/runtime-lock.json").read_text())["revision"]
 
 def run(*args):
     subprocess.run([str(x) for x in args], cwd=ROOT, check=True)

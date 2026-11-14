@@ -12,9 +12,9 @@ import tempfile
 from buildenv import apply_sdkroot, reset_stale_cmake
 
 ROOT = Path(__file__).resolve().parent.parent
-PIN = "2eac2e77d9c7ef8899f7a86a46e693ac5ac1a5cd"
-VOICE = "bca46bcbc2fe68169c2d7c414e9b290a7cb89911"
-GGML = "e705c5fed490514458bdd2eaddc43bd098fcce9b"
+# native/runtime-lock.json is the single source of truth for the pinned revisions.
+LOCK = json.loads((ROOT / "native/runtime-lock.json").read_text())
+PIN, VOICE, GGML = LOCK["parakeet"], LOCK["voice_detect"], LOCK["ggml"]
 
 def run(args, **kwargs):
     print("+", " ".join(str(x) for x in args), flush=True)
@@ -119,8 +119,6 @@ def main():
     shutil.copy2(ROOT / "native/echo/runtime-lock.json", contents / "Resources/echo-runtime-lock.json")
     shutil.copy2(source / "third_party/dr_wav.h", notices / "dr_wav-notice.h")
     shutil.copy2(voice / "LICENSE", notices / "voice-detect-MIT.txt")
-    lock = {"parakeet": PIN, "ggml": GGML, "voice_detect": VOICE, "features": ["CPU", "Accelerate", "Metal embedded shaders", "local speaker embeddings"], "excluded": ["CED"]}
-    (ROOT / "native/runtime-lock.json").write_text(json.dumps(lock, indent=2) + "\n")
     shutil.copy2(ROOT / "native/runtime-lock.json", contents / "Resources/runtime-lock.json")
     signing = ["--force", "--sign", args.sign]
     if args.sign != "-": signing += ["--options", "runtime", "--timestamp"]
