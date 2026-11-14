@@ -122,9 +122,11 @@ def main():
     shutil.copy2(ROOT / "native/runtime-lock.json", contents / "Resources/runtime-lock.json")
     signing = ["--force", "--sign", args.sign]
     if args.sign != "-": signing += ["--options", "runtime", "--timestamp"]
+    # The hardened runtime denies the microphone unless the app declares it.
+    app_signing = signing + (["--entitlements", ROOT / "Resources/Verbale.entitlements"] if args.sign != "-" else [])
     run(["codesign"] + signing + [contents / "Frameworks/libparakeet.dylib"])
     run(["codesign"] + signing + [contents / "Frameworks/libverbale_aec.dylib"])
-    run(["codesign"] + signing + [app])
+    run(["codesign"] + app_signing + [app])
     run(["codesign", "--verify", "--deep", "--strict", app])
     if args.dmg:
         if args.preview:
