@@ -96,6 +96,10 @@ enum ReportChecks {
             try await ReportService.generateExtended(meeting: input, endpoint: LocalGateway.defaultEndpoint, model: "test", key: key, session: session,
                 checkpointDirectory: directory, timing: timing, policy: policy, diagnostics: { m in metrics?.update { $0.append(m) } }, progress: { p in progress?.update { $0.append(p) } })
         }
+        await check("retry-after durations with non-ASCII digits are rejected without trapping") {
+            try VoiceChecks.require(ReportServiceError.duration("1m30s") == 90 && ReportServiceError.duration("250ms") == 0.25,"ASCII duration changed")
+            try VoiceChecks.require(ReportServiceError.duration("٣s") == nil && ReportServiceError.duration("３s") == nil,"non-ASCII digits accepted")
+        }
         await check("nearby citations compact into ranges without merging distant or unknown evidence") {
             var sample = meeting
             sample.segments = (0..<4).map { Segment(source:.system,start:Double($0*3),end:Double($0*3+2),text:"Fonte \($0)") }
