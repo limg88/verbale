@@ -34,7 +34,7 @@ private struct ExportFixture {
 
 private let requiredFiles: Set<String> = [
     ".verbale-id", "meeting.json", "transcript.md", "transcript.json",
-    "notes.md", "markers.json", "corrections.json"
+    "notes.md", "markers.json", "corrections.json", "summary.json"
 ]
 
 @Test func exportContractAndDocumentOnlyUpdates() throws {
@@ -112,10 +112,11 @@ private let requiredFiles: Set<String> = [
     }
     try markFiles()
     meeting = try store.export(meeting, documentsOnly: true)
-    for name in requiredFiles.subtracting([".verbale-id"]) {
+    let publicationFiles: Set<String> = [".verbale-id", "meeting.json", "summary.json"]
+    for name in requiredFiles.subtracting(publicationFiles) {
         #expect(try mtime(name) == oldDate, "Riscritto senza modifiche: \(name)")
     }
-    #expect(try mtime(".verbale-id") != oldDate)
+    for name in publicationFiles { #expect(try mtime(name) != oldDate) }
 
     try meeting.changeTitle("Riunione rinominata")
     meeting.notes = "Appunto di prova"
@@ -252,19 +253,130 @@ private let requiredFiles: Set<String> = [
     _ = try store.export(meeting, documentsOnly: true)
     #expect(try Data(contentsOf: output.appendingPathComponent(screenshot.filename)) == Data([1, 2, 3]))
     try Data([1, 2, 3]).write(to: screenshotURL)
+    try store.cleanupAudio(meeting)
 
-    // A failed update can change documents while the previous manifest is still visible.
+    // A failed update may change documents, but it must withdraw the old manifest.
     meeting.notes = "Revisione ancora da pubblicare"
     let missing = AudioChunk(source: .system, start: 1, sampleCount: 160, filename: "audio/missing.caf")
     meeting.chunks.append(missing)
+    meeting.exported = false
+    let lastRevision = try #require(store.read(meeting.id).exportRevision)
+    try store.save(meeting)
     #expect(throws: (any Error).self) { try store.export(meeting, documentsOnly: true) }
-    #expect(try Data(contentsOf: manifest) == published)
+    #expect(!files.fileExists(atPath: manifest.path))
     #expect(try String(contentsOf: output.appendingPathComponent("notes.md"), encoding: .utf8) == meeting.notes)
-    meeting.keepAudio = false
+    let reopened = try SessionStore(root: store.root)
+    meeting = try reopened.read(meeting.id)
+    #expect(meeting.notes == "Revisione ancora da pubblicare")
+    #expect(meeting.chunks.last?.id == missing.id)
+    #expect(!meeting.exported)
+    try AudioFiles.write(samples, to: workspace.appendingPathComponent(missing.filename))
     meeting.report = nil
-    _ = try store.export(meeting)
+    meeting = try reopened.export(meeting, documentsOnly: true)
+    #expect(meeting.exportRevision == lastRevision + 1)
     #expect(try Data(contentsOf: manifest) != published)
+    #expect(files.fileExists(atPath: output.appendingPathComponent(missing.filename).path))
     for name in optional {
         #expect(files.fileExists(atPath: output.appendingPathComponent(name).path))
     }
+}
+
+@Test func exportDestinationPublication() throws {
+    let fixture = try ExportFixture()
+    defer { fixture.cleanUp() }
+    let publication = fixture.root.appendingPathComponent("export.json")
+    let files = FileManager.default
+    struct Destination: Decodable, Equatable { let schemaVersion: Int; let destination: String }
+    func readDestination() throws -> Destination {
+        try JSONDecoder().decode(Destination.self, from: Data(contentsOf: publication))
+    }
+
+    try fixture.store.publishExportDestination(nil)
+    #expect(!files.fileExists(atPath: publication.path))
+    try fixture.store.publishExportDestination(fixture.destination)
+    #expect(try readDestination() == Destination(schemaVersion: 1, destination: fixture.destination.path))
+    let next = fixture.root.appendingPathComponent("Cartella nuova")
+    try files.createDirectory(at: next, withIntermediateDirectories: true)
+    try fixture.store.publishExportDestination(next)
+    #expect(try readDestination() == Destination(schemaVersion: 1, destination: next.path))
+    let reopened = try SessionStore(root: fixture.store.root)
+    try files.removeItem(at: publication)
+    try reopened.publishExportDestination(next)
+    #expect(try readDestination() == Destination(schemaVersion: 1, destination: next.path))
+    try reopened.publishExportDestination(nil)
+    #expect(!files.fileExists(atPath: publication.path))
+}
+
+@Test func exportMetadataSummaryAndLegacyManifests() throws {
+    let fixture = try ExportFixture()
+    defer { fixture.cleanUp() }
+    let store = fixture.store
+    var meeting = Meeting(title: "Riunione Octo", sources: [.microphone, .system],
+                          destination: fixture.destination, keepAudio: false)
+    meeting.state = .complete
+    meeting.duration = 4
+    let output = fixture.destination.appendingPathComponent(meeting.folderName)
+    let manifest = output.appendingPathComponent("meeting.json")
+    let summary = output.appendingPathComponent("summary.json")
+    let optionalFields = ["calendarEventUID", "onlineMeetingURL", "participants", "exportedAt", "exportRevision"]
+    func json(_ file: URL) throws -> [String: Any] {
+        try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+    }
+    func checkSummary(_ fields: Set<String>) throws {
+        let full = try json(manifest)
+        let compact = try json(summary)
+        #expect(Set(compact.keys) == fields)
+        #expect(NSDictionary(dictionary: compact) == NSDictionary(dictionary: full.filter { fields.contains($0.key) }))
+    }
+    let basicFields: Set<String> = ["schemaVersion", "id", "title", "started", "timezone", "duration", "state", "exportedAt", "exportRevision"]
+
+    let first = try store.export(meeting)
+    #expect(first.exportRevision == 1)
+    #expect(first.exportedAt != nil)
+    try checkSummary(basicFields)
+    let localManifest = store.workspace(meeting.id).appendingPathComponent("meeting.json")
+    for file in [manifest, localManifest] {
+        let legacy = try json(file).filter { !optionalFields.contains($0.key) }
+        let bytes = try JSONSerialization.data(withJSONObject: legacy)
+        try bytes.write(to: file)
+        let decoded = try JSONCoding.decoder().decode(Meeting.self, from: bytes)
+        #expect(decoded.schemaVersion == 1 && decoded.id == meeting.id)
+        #expect(decoded.calendarEventUID == nil && decoded.onlineMeetingURL == nil && decoded.participants == nil)
+        #expect(decoded.exportedAt == nil && decoded.exportRevision == nil)
+    }
+    try FileManager.default.removeItem(at: summary)
+    meeting = try store.read(meeting.id)
+    #expect(meeting.exportRevision == nil)
+
+    let manual = Segment(source: .system, start: 0, end: 1, text: "Ciao", speakerID: "slot-1")
+    let recognized = Segment(source: .system, start: 1, end: 2, text: "Buongiorno", speakerID: "slot-2")
+    let uncertain = Segment(source: .system, start: 2, end: 3, text: "Come va?", speakerID: "slot-3")
+    let secondManual = Segment(source: .microphone, start: 3, end: 4, text: "Bene")
+    let unnamed = Segment(source: .microphone, start: 4, end: 5, text: "Grazie")
+    meeting.segments = [manual, recognized, uncertain, secondManual, unnamed]
+    try meeting.assignVoiceName("anna", to: manual.id)
+    try meeting.assignVoiceName(" Anna ", to: secondManual.id)
+    meeting.applyVoiceGroup([recognized.id], ranking: VoiceRanking(profileID: UUID(), name: "Bruno", score: 0.9, margin: 0.2), automatic: true)
+    meeting.applyVoiceGroup([uncertain.id], ranking: VoiceRanking(profileID: UUID(), name: "Carla", score: 0.6, margin: 0.1), automatic: false)
+    meeting.speakers["unused-slot"] = "Nome non più assegnato"
+    meeting.calendarEventUID = "event@example.test"
+    meeting.onlineMeetingURL = URL(string: "https://teams.microsoft.com/example")
+    let upgraded = try store.export(meeting)
+    #expect(upgraded.schemaVersion == 1 && upgraded.exportRevision == 1)
+    let publicMeeting = try JSONCoding.decoder().decode(Meeting.self, from: Data(contentsOf: manifest))
+    #expect(publicMeeting.calendarEventUID == meeting.calendarEventUID)
+    #expect(publicMeeting.onlineMeetingURL == meeting.onlineMeetingURL)
+    #expect(publicMeeting.participants == [MeetingParticipant(name: "Anna"), MeetingParticipant(name: "Bruno")])
+    #expect(publicMeeting.speakers == meeting.speakers)
+    try checkSummary(basicFields.union(["calendarEventUID", "onlineMeetingURL", "participants"]))
+
+    let next = fixture.root.appendingPathComponent("second-export")
+    try FileManager.default.createDirectory(at: next, withIntermediateDirectories: true)
+    meeting.destination = next.path
+    meeting.participants = [MeetingParticipant(name: "Anna", email: "anna@example.test")]
+    let moved = try store.export(meeting)
+    #expect(moved.exportRevision == 2)
+    let nextManifest = next.appendingPathComponent(meeting.folderName).appendingPathComponent("meeting.json")
+    let decoded = try JSONCoding.decoder().decode(Meeting.self, from: Data(contentsOf: nextManifest))
+    #expect(decoded.participants == meeting.participants)
 }
