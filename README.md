@@ -69,6 +69,8 @@ Per diagnosticare il solo segnale, senza registrare: `verbale-cli teams-status` 
 
 **Conservazione:** per impostazione predefinita l'audio temporaneo è eliminato dopo completamento ed esportazione riusciti. Puoi esportare anche l'audio, oppure conservare la copia temporanea per rielaborazione. In caso di errore rimane recuperabile in `~/Library/Application Support/Verbale/Sessions`. L'archivio interno conserva metadati, note e trascrizione per la riapertura; puoi rimuovere questa copia dall'Archivio senza cancellare gli output esportati.
 
+I file esportati, il manifest e le ancore della trascrizione sono descritti nel [contratto di esportazione per Octo e altri lettori esterni](docs/EXPORT-CONTRACT.md).
+
 **Interlocutori:** installa il modello opzionale di diarizzazione e conserva l’audio. Dalla trascrizione scegli **Separa interlocutori**; puoi rinominarli e creare profili per riconoscerli nelle riunioni successive. La versione 0.10 legge l’audio a blocchi e rimuove il precedente limite di 30 minuti. Vedi **Profili vocali locali** in fondo a questo documento.
 
 **Screenshot:** durante la registrazione, premi Screenshot e seleziona l'area. Le immagini sono collegate al timestamp nel Markdown. I permessi dello schermo sono separati dai permessi audio.
@@ -135,6 +137,8 @@ verbale-cli transcribe audio.wav asr.gguf vad.gguf cartella-output /percorso/lib
 `verbale-cli` si trova nella directory indicata da `swift build --scratch-path .build/swift --show-bin-path`. Accetta file audio leggibili da AVFoundation e crea la stessa struttura di output della UI. La CLI è uno strumento di sviluppo; i percorsi modello espliciti sono a carico del chiamante. La UI verifica invece i digest del catalogo.
 
 `scripts/test.sh` usa un eseguibile di controllo indipendente da XCTest, perché la toolchain Command Line Tools disponibile non include XCTest. Verifica recupero con journal troncato, esportazione, disco assente, allegati mancanti, collisioni, ricampionamento, conservazione dell'audio esportato dopo la pulizia e rimozione esplicita della spunta audio.
+
+Con Swift 6, `swift test --disable-xctest` esegue i test di contratto dell’esportazione.
 
 Verifica anche conferma iniziale Teams, riconnessioni, chiamate consecutive, assenza di avvii duplicati, segnale indisponibile e identità/livello dell'asserzione. I controlli includono archivi precedenti, cronologia correzioni, marcatori, ancore esportate e generazione report con note tramite un trasporto simulato, senza contattare servizi esterni.
 

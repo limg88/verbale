@@ -4,6 +4,7 @@
 - Proposte strutturate dal report operativo, sottoposte a revisione del PM prima di creare o aggiornare un’attività. Suggerimenti di corrispondenza nello stesso progetto e controllo dei duplicati.
 - Registro persistente indipendente dai report, cronologia delle modifiche, fonti con ID stabili e copie del testo citato. Le date relative richiedono conferma e la rigenerazione non sovrascrive il lavoro del PM.
 - Compatibilità con le riunioni precedenti; protezione da fonti obsolete, registri corrotti e salvataggi falliti.
+- Contratto di esportazione per Octo e altri lettori esterni, con test di regressione per manifest, file, ancore e riesportazione.
 
 # Verbale 0.16.2
 
