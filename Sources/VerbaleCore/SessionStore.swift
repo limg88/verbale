@@ -1,7 +1,45 @@
 import Foundation
+import Darwin
+import os
+
+private struct ExportDestination: Encodable {
+    let schemaVersion = 1
+    let destination: String
+}
+
+private struct MeetingExportSummary: Codable {
+    let schemaVersion: Int
+    let id: UUID
+    let title: String
+    let started: Date
+    let timezone: String
+    let duration: Double
+    let state: SessionState
+    let exportedAt: Date?
+    let exportRevision: Int?
+    let calendarEventUID: String?
+    let onlineMeetingURL: URL?
+    let participants: [MeetingParticipant]?
+
+    init(_ meeting: Meeting) {
+        schemaVersion = meeting.schemaVersion
+        id = meeting.id
+        title = meeting.title
+        started = meeting.started
+        timezone = meeting.timezone
+        duration = meeting.duration
+        state = meeting.state
+        exportedAt = meeting.exportedAt
+        exportRevision = meeting.exportRevision
+        calendarEventUID = meeting.calendarEventUID
+        onlineMeetingURL = meeting.onlineMeetingURL
+        participants = meeting.participants
+    }
+}
 
 /// One store per process. All mutations are serialized by the UI/processor coordinator.
 public final class SessionStore {
+    private static let log = Logger(subsystem: "io.verbale.app", category: "export")
     public let root: URL
     private let artifactVerification = ArtifactVerification()
     public init(root: URL? = nil) throws {
@@ -11,6 +49,23 @@ public final class SessionStore {
         try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: self.root.path)
     }
     public func workspace(_ id: UUID) -> URL { root.appendingPathComponent(id.uuidString, isDirectory: true) }
+    public func publishExportDestination(_ destination: URL?) throws {
+        let file = root.deletingLastPathComponent().appendingPathComponent("export.json")
+        if let destination {
+            let publication = ExportDestination(destination: destination.standardizedFileURL.path)
+            try JSONCoding.encoder().encode(publication).write(to: file, options: .atomic)
+        } else {
+            try removeFileIfPresent(file)
+        }
+    }
+    private func removeFileIfPresent(_ file: URL) throws {
+        try file.withUnsafeFileSystemRepresentation { path in
+            guard let path else { throw CocoaError(.fileWriteInvalidFileName) }
+            if unlink(path) != 0, errno != ENOENT {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: path])
+            }
+        }
+    }
     public func save(_ meeting: Meeting) throws {
         let path = workspace(meeting.id)
         try FileManager.default.createDirectory(at: path.appendingPathComponent("audio"), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -75,10 +130,21 @@ public final class SessionStore {
                 throw VerbaleError.message("La cartella esiste già e non è stata creata per questa riunione.")
             }
         }
-        let previous=(try? Data(contentsOf:target.appendingPathComponent("meeting.json"))).flatMap {try? JSONCoding.decoder().decode(Meeting.self,from:$0)}
+        let manifest = target.appendingPathComponent("meeting.json")
+        let summary = target.appendingPathComponent("summary.json")
+        let previous = (try? Data(contentsOf: manifest)).flatMap { try? JSONCoding.decoder().decode(Meeting.self, from: $0) }
         if let previous,previous.id != meeting.id {
             throw VerbaleError.message("La cartella appartiene a un'altra riunione. Scegli una nuova destinazione.")
         }
+        // The archive tracks exports across destinations. The previous summary can carry
+        // the revision when a failed rewrite removed the target's manifest.
+        let archived = try? read(meeting.id)
+        let previousSummary = previous == nil ? (try? JSONCoding.decoder().decode(MeetingExportSummary.self, from: Data(contentsOf: summary))) : nil
+        let summaryRevision = previousSummary?.id == meeting.id ? previousSummary?.exportRevision : nil
+        let lastRevision = max(0, meeting.exportRevision ?? 0, archived?.exportRevision ?? 0,
+                               previous?.exportRevision ?? 0, summaryRevision ?? 0)
+        let (revision, overflow) = lastRevision.addingReportingOverflow(1)
+        guard !overflow else { throw VerbaleError.message("Numero massimo di revisioni di esportazione raggiunto.") }
         // Review-only exports reuse attachments already committed by a full export.
         // Added/removed audio or screenshots, missing/corrupt metadata, or a new
         // destination always take the verified full export path.
@@ -96,6 +162,9 @@ public final class SessionStore {
             if documentsOnly,(try? Data(contentsOf:path))==bytes {return}
             try bytes.write(to:path,options:.atomic)
         }
+        let localManifest = workspace(meeting.id).appendingPathComponent("meeting.json")
+        if archived == nil && !FileManager.default.fileExists(atPath: localManifest.path) { try save(meeting) }
+        try removeFileIfPresent(manifest)
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         try meeting.id.uuidString.write(to: owner, atomically: true, encoding: .utf8)
         let segments = meeting.segments.sorted { $0.start == $1.start ? $0.source.rawValue < $1.source.rawValue : $0.start < $1.start }
@@ -135,13 +204,32 @@ public final class SessionStore {
                 catch { CoreLog.warning("Playable audio for \(source.rawValue) not written (\(type(of: error)))") }
             }
         }
-        meeting.exported = true
-        // Commit marker is written last; earlier failures never report successful export.
-        // The exported copy must be portable: it does not carry the absolute folder of this Mac.
-        // The internal manifest keeps it, since it is how the app finds the export again.
-        var portable = meeting; portable.destination = ""
-        try writeDocument(JSONCoding.encoder().encode(portable),"meeting.json")
+        meeting.exportedAt = Date()
+        meeting.exportRevision = revision
+        var portable = meeting
+        portable.exported = true
+        portable.destination = ""
+        if portable.participants == nil {
+            let named = meeting.speakerGroups.filter { $0.name != $0.representativeID }
+            if !named.isEmpty { portable.participants = named.map { MeetingParticipant(name: $0.name) } }
+        }
+
+        let encoder = JSONCoding.encoder()
+        let manifestData = try encoder.encode(portable)
+        // Reserve the revision in the archive before any reader can open the new manifest.
+        // If publishing fails, the archive retains the revision and the meeting remains pending.
+        meeting.exported = false
         try save(meeting)
+        try encoder.encode(MeetingExportSummary(portable)).write(to: summary, options: .atomic)
+        try manifestData.write(to: manifest, options: .atomic)
+
+        meeting.exported = true
+        do { try save(meeting) }
+        catch {
+            // The export is committed and the revision is durable. Keep the archived status
+            // pending if this last update fails so a later retry can publish a newer revision.
+            Self.log.error("Export committed but archive status update failed.")
+        }
         return meeting
     }
     private func copyArtifact(_ filename: String, meeting: Meeting, target: URL) throws {

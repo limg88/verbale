@@ -1,0 +1,24 @@
+name: Export contract
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  export-contract:
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Swift toolchain
+        run: swift --version
+      - name: Export contract tests
+        run: swift test --disable-xctest

@@ -13,7 +13,8 @@ let package = Package(
         .target(name: "VerbaleCore", dependencies: ["CParakeet", "CEcho"], resources: [.copy("Resources")]),
         .executableTarget(name: "Verbale", dependencies: ["VerbaleCore"]),
         .executableTarget(name: "VerbaleCLI", dependencies: ["VerbaleCore"]),
-        .executableTarget(name: "VerbaleChecks", dependencies: ["VerbaleCore"], path: "Tests/VerbaleCoreTests", exclude: ["Fixtures"])
+        .executableTarget(name: "VerbaleChecks", dependencies: ["VerbaleCore"], path: "Tests/VerbaleCoreTests", exclude: ["Fixtures"]),
+        .testTarget(name: "VerbaleExportContractTests", dependencies: ["VerbaleCore"])
     ],
     swiftLanguageVersions: [.v5]
 )

@@ -4,6 +4,8 @@
 - Proposte strutturate dal report operativo, sottoposte a revisione del PM prima di creare o aggiornare un’attività. Suggerimenti di corrispondenza nello stesso progetto e controllo dei duplicati.
 - Registro persistente indipendente dai report, cronologia delle modifiche, fonti con ID stabili e copie del testo citato. Le date relative richiedono conferma e la rigenerazione non sovrascrive il lavoro del PM.
 - Compatibilità con le riunioni precedenti; protezione da fonti obsolete, registri corrotti e salvataggi falliti.
+- Contratto di esportazione per Octo e altri lettori esterni, con test di regressione per manifest, file, ancore e riesportazione.
+- Destinazione di export pubblicata in `~/Library/Application Support/Verbale/export.json`. Riepilogo `summary.json`, data e revisione di export e partecipanti identificati, con schema `1`. Durante la riesportazione `meeting.json` ricompare solo al completamento. I campi per evento e link di calendario sono facoltativi e restano assenti con il rilevamento Teams attuale.
 
 # Verbale 0.16.2
 
