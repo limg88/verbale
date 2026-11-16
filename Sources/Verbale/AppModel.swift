@@ -59,7 +59,7 @@ import VerbaleCore
     @Published var routingRefreshing = false
     @Published var routingStatus = ""
     var routingMigrated = false
-    @Published var destination: URL?
+    @Published private(set) var destination: URL?
     @Published var isRecording = false
     @Published var busy = false
     @Published var working = false
@@ -426,6 +426,7 @@ import VerbaleCore
                 if stale { persistDestination(url) }
             }
         }
+        publishDestination()
         noteDrafts.submit = { [weak self] id,text in self?.saveNotes(text,meetingID:id) }
         reload()
         Task { await refreshModels() }
@@ -446,6 +447,11 @@ import VerbaleCore
         accessURL?.stopAccessingSecurityScopedResource(); accessURL = nil
         if url.startAccessingSecurityScopedResource() { accessURL = url }
         destination = url; persistDestination(url)
+        publishDestination()
+    }
+    private func publishDestination() {
+        do { try store.publishExportDestination(destination) }
+        catch { self.error = "Impossibile pubblicare la cartella di esportazione: \(error.localizedDescription)" }
     }
     private func persistDestination(_ url: URL) {
         do { UserDefaults.standard.set(try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil), forKey: "destinationBookmark") }

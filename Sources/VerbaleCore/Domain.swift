@@ -52,6 +52,15 @@ public struct Screenshot: Codable, Identifiable, Sendable {
     public var filename: String
     public init(timestamp: Double, filename: String) { self.timestamp = timestamp; self.filename = filename }
 }
+public struct MeetingParticipant: Codable, Equatable, Sendable {
+    public var name: String
+    public var email: String?
+
+    public init(name: String, email: String? = nil) {
+        self.name = name
+        self.email = email
+    }
+}
 public struct Meeting: Codable, Identifiable, Sendable {
     public var schemaVersion = 1
     public var id = UUID()
@@ -70,12 +79,17 @@ public struct Meeting: Codable, Identifiable, Sendable {
     public var segments: [Segment] = []
     public var screenshots: [Screenshot] = []
     public var speakers: [String: String] = [:]
+    public var calendarEventUID: String?
+    public var onlineMeetingURL: URL?
+    public var participants: [MeetingParticipant]?
     public var modelDigests: [String: String] = [:]
     public var warnings: [String] = []
     public var actionProposals: [ActionProposal]?
     public var report: String?
     public var reportStatus: String = "Non richiesto"
     public var exported = false
+    public var exportedAt: Date?
+    public var exportRevision: Int?
     // Optional for compatibility with sessions saved before review tools existed.
     public var review: MeetingReview?
     public var listeningMode: ListeningMode?
