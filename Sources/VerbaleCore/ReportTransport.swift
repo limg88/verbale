@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking // URLSession lives here on Linux and Windows
 #endif
@@ -20,16 +21,18 @@ public struct ReportServiceError: LocalizedError, Sendable {
     public let status: Int
     public let retryAfter: Double?
     public var context:ReportFailureContext? = nil
+    public var validationDetail: String? = nil
     public var retryable: Bool { [.gatewayBusy, .backendRateLimit, .gatewayUnavailable].contains(kind) }
     public var errorDescription:String? {
-        guard let context else { return explanation }
+        let message = explanation + (validationDetail.map { "\n" + $0 } ?? "")
+        guard let context else { return message }
         let stages = ["extraction":"Estrazione","capsule":"Lettura scheda","final":"Rapporto finale","final_overview":"Sintesi del report","final_section":"Sezione del report","health":"Verifica gateway","models":"Verifica modello"]
         let stage = stages[context.phase] ?? "Generazione report"
         var details = [stage+(context.count > 0 ? " \(context.index)/\(context.count)":"")]
         if status > 0 { details.append("HTTP \(status)") }
         if let code = context.errorCode { details.append(code) }
         if let id = context.requestID { details.append("ID richiesta: \(id)") }
-        return explanation+"\n"+details.joined(separator:" · ")
+        return message+"\n"+details.joined(separator:" · ")
     }
     private var explanation:String {
         let wait = retryAfter.map { $0 > 86400 ? " Il ripristino richiede più di un giorno." : " Riprova fra circa \(Int(ceil($0))) secondi." } ?? ""
@@ -37,7 +40,7 @@ public struct ReportServiceError: LocalizedError, Sendable {
         case .workLimit: return "Raggiunto il limite di richieste o budget complessivo. Le parti completate restano salvate; riprendi il report per continuare."
         case .deadline: return "Raggiunto il tempo massimo complessivo del report. Le parti completate restano salvate; riprendi per continuare."
         case .intermediateCapacity: return "Una singola informazione estratta è troppo estesa per la richiesta al modello. Nessun contenuto è stato tagliato: le schede completate restano salvate."
-        case .gatewayToken: return "Il token del gateway locale non è valido. Importa il token dalla cartella llm-api o correggilo nelle Impostazioni."
+        case .gatewayToken: return "Il token del gateway locale non è valido. Importa il token dalla cartella del gateway o correggilo nelle Impostazioni."
         case .backendLogin: return "Il gateway è raggiungibile, ma il login del backend non è valido. Verifica il client ufficiale e il metodo di accesso configurato nel gateway."
         case .backendCredentials: return "La chiave del servizio scelto nel gateway è assente o non valida. Verifica la variabile API o la voce Portachiavi indicata in config.json; il token locale non è una chiave del provider."
         case .gatewayBusy: return "Il gateway sta già elaborando altre richieste.\(wait)"
@@ -73,17 +76,22 @@ public struct ReportServiceError: LocalizedError, Sendable {
             parser.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss z"
             retry = parser.date(from: header).map { max(0, $0.timeIntervalSince(now)) }
         }
+        if retry == nil, let seconds = (json?["error"] as? [String: Any])?["retry_after"] as? NSNumber,
+           CFGetTypeID(seconds) != CFBooleanGetTypeID(), seconds.doubleValue.isFinite, seconds.doubleValue >= 0 {
+            retry = seconds.doubleValue
+        }
         let kind: Kind
         switch code {
         case "authentication_error": kind = .gatewayToken
         case "backend_authentication_error": kind = .backendLogin
         case "backend_credentials_missing", "backend_credentials_invalid": kind = .backendCredentials
-        case "gateway_busy": kind = .gatewayBusy
-        case "rate_limit_exceeded", "backend_daily_quota": kind = .backendQuota
-        case "backend_rate_limit": kind = .backendRateLimit
+        case "gateway_busy", "backend_overloaded": kind = .gatewayBusy
+        case "rate_limit_exceeded", "backend_daily_quota", "backend_quota_exceeded": kind = .backendQuota
+        case "backend_rate_limit", "gateway_rate_limit": kind = .backendRateLimit
         case "output_limit_exceeded": kind = .truncated
         case "backend_timeout": kind = .gatewayTimeout
-        case "invalid_request_error", "not_found": kind = .gatewayConfig
+        case "backend_incomplete_response": kind = .invalidResponse
+        case "invalid_request_error", "backend_invalid_request", "permission_denied", "not_found": kind = .gatewayConfig
         default:
             switch response.statusCode {
             case 401: kind = .gatewayToken
@@ -140,7 +148,7 @@ final class ReportClient {
             var request = URLRequest(url: url); request.httpMethod = "POST"; request.timeoutInterval = 330
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            var body:[String:Any] = ["model":model,"max_tokens":budget,"messages":[["role":"system","content":system],["role":"user","content":user]]]
+            var body:[String:Any] = ["model":model,"stream":false,"max_tokens":budget,"messages":[["role":"system","content":system],["role":"user","content":user]]]
             if let reasoningEffort { body["reasoning_effort"] = reasoningEffort }
             request.httpBody = try JSONSerialization.data(withJSONObject:body)
             let data: Data, reply: URLResponse

@@ -10,6 +10,23 @@ public struct GatewayModel: Decodable, Hashable, Sendable {
     public let report_input_limit_bytes:Int?
     public let report_low_effort:Bool?
     public let provider_type:String?
+
+    /// Legacy discovery metadata takes precedence over local model defaults.
+    public var reportProvider: String {
+        if let provider_type { return provider_type }
+        if id == "claude" || id.hasPrefix("claude/") { return "claude" }
+        if id.hasPrefix("groq/") { return "groq" }
+        return "generic"
+    }
+    public var reportInputLimit: Int {
+        report_input_limit_bytes ?? input_limit_bytes ?? (reportProvider == "claude" ? 48000 : extendedInputLimit)
+    }
+    public var extendedInputLimit: Int {
+        input_limit_bytes ?? (reportProvider == "groq" ? 6000 : 14000)
+    }
+    public var reportLowEffort: Bool {
+        report_low_effort ?? (reportProvider == "claude")
+    }
 }
 private final class GatewayRedirectPolicy: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,

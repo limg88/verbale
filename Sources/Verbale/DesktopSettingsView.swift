@@ -74,12 +74,12 @@ struct DesktopSettingsView: View {
                     HStack { Text("Servizio report").font(.headline); Spacer(); Button("Avvia gateway") { model.launchGateway() } }
                     GatewayModelPicker().frame(maxWidth: 500)
                     if !model.gatewayStatus.isEmpty { Text(model.gatewayStatus).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
-                    Text("Genera i report dalla scheda Report della riunione. Il testo viene inviato al modello scelto tramite llm-api; audio e immagini restano sul Mac.").font(.callout).foregroundStyle(.secondary)
+                    Text("Genera i report dalla scheda Report della riunione. Il testo viene inviato al modello scelto tramite il gateway locale; audio e immagini restano sul Mac.").font(.callout).foregroundStyle(.secondary)
                     Text("Il gateway può servire altre app. Per arrestarlo usa Ctrl-C nella sua finestra Terminale.").font(.callout).foregroundStyle(.secondary)
                     DisclosureGroup("Connessione e credenziali") {
                         VStack(alignment: .leading, spacing: 12) {
                             TextField("URL del gateway", text: $model.gatewayEndpoint).textFieldStyle(.roundedBorder)
-                            TextField("Cartella llm-api", text: $model.gatewayProject).textFieldStyle(.roundedBorder)
+                            TextField("Cartella gateway", text: $model.gatewayProject).textFieldStyle(.roundedBorder)
                             HStack {
                                 SecureField("Token locale del gateway", text: $model.gatewayToken).textFieldStyle(.roundedBorder)
                                 Button("Importa token locale") { model.importGatewayToken() }
