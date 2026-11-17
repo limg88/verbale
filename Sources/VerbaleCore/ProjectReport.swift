@@ -23,14 +23,14 @@ enum ProjectReport {
             })
             guard let selected = models.first(where:{ $0.id == model }) else { throw VerbaleError.message("Il modello selezionato non è configurato nel gateway. Aggiorna l’elenco nelle Impostazioni.") }
             // Never exceed an advertised budget. Older gateways retain the safe fallback.
-            let limit = min(48000,max(512,selected.report_input_limit_bytes ?? selected.input_limit_bytes ?? 14000))
+            let limit = min(48000,max(512,selected.reportInputLimit))
             let prefix = "FONTI DELLA RIUNIONE:\n",suffix = "\nFINE FONTI\n"
             let overhead = (prefix+suffix+ProjectReportPrompt.extraction(overview:true)).utf8.count
             guard limit-overhead >= 512 else { throw ReportServiceError(kind:.tooLarge,status:0,retryAfter:nil) }
             let batches = ReportService.sourceBatches(meeting:meeting,limit:limit-overhead)
             guard !batches.isEmpty else { throw VerbaleError.message("La trascrizione è vuota") }
             func hash(_ text:String)->String { SHA256.hash(data:Data(text.utf8)).map { String(format:"%02x",$0) }.joined() }
-            let effort = selected.report_low_effort == true ? "low":nil
+            let effort = selected.reportLowEffort ? "low":nil
             let identity = hash((effort ?? "standard")+"\n"+ProjectReportPrompt.version+"\n"+endpoint+"\n"+model+"\n"+ProjectReportPrompt.system+"\n"+ProjectReportPrompt.extraction(overview:batches.count == 1)+"\n"+batches.map(\.text).joined(separator:"\0"))
             let file = checkpointDirectory?.appendingPathComponent(identity+".json")
             var cache:Checkpoint = file.flatMap { try? JSONDecoder().decode(Checkpoint.self,from:Data(contentsOf:$0)) } ?? Checkpoint()
@@ -51,7 +51,7 @@ enum ProjectReport {
                 }
                 let budget:Int
                 if summary { budget = min(policy.maxOutputTokens,6000) }
-                else if selected.provider_type == "claude" {
+                else if selected.reportProvider == "claude" {
                     budget = user.utf8.count > 32000 ? policy.maxOutputTokens:min(policy.maxOutputTokens,max(8192,4096+(user.utf8.count/4000)*1024))
                 } else { budget = policy.budget(final:false,bytes:user.utf8.count) }
                 let text = try await client.complete(system:ProjectReportPrompt.system,user:user,maxOutput:budget,phase:phase,index:index,count:count)
@@ -68,7 +68,7 @@ enum ProjectReport {
                         progress("Estrazione operativa \(index) di \(batches.count)"+(depth > 0 ? " · parte ridotta":""))
                         let user = prefix+batch.text+suffix+ProjectReportPrompt.extraction(overview:batches.count == 1 && depth == 0)
                         return [try await complete(user,valid:batch.refs,phase:"extraction",index:index,count:batches.count)]
-                    } catch let error as ReportServiceError where canSplit && [.truncated,.tooLarge,.gatewayTimeout].contains(error.kind) {
+                    } catch let error as ReportServiceError where canSplit && [.truncated,.tooLarge,.gatewayTimeout,.invalidResponse].contains(error.kind) {
                         cache.splits.insert(parent);try save()
                     }
                 }

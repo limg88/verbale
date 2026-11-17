@@ -23,16 +23,34 @@ struct ProjectEvidence:Codable {
         if (json.hasPrefix("```json\n") || json.hasPrefix("```\n")),json.hasSuffix("```") {
             json = String(json.dropFirst(json.hasPrefix("```json\n") ? 8:4).dropLast(3)).trimmingCharacters(in:.whitespacesAndNewlines)
         }
-        guard let data = json.data(using:.utf8),var value = try? JSONDecoder().decode(Self.self,from:data) else {
-            throw ReportServiceError(kind:.invalidResponse,status:200,retryAfter:nil)
+        func invalid(_ detail: String) -> ReportServiceError {
+            var error = ReportServiceError(kind: .invalidResponse, status: 200, retryAfter: nil)
+            error.validationDetail = detail
+            return error
+        }
+        let data = Data(json.utf8)
+        guard (try? JSONSerialization.jsonObject(with: data)) != nil else {
+            throw invalid("Il modello ha restituito un JSON non valido.")
+        }
+        guard var value = try? JSONDecoder().decode(Self.self, from: data) else {
+            throw invalid("Il JSON del modello contiene campi mancanti o tipi incompatibili con il report.")
         }
         let kinds:Set<String> = ["fact","decision","action","risk","opportunity","question","note","conflict","summary"]
         func valid(_ item:Item)->Bool {
             kinds.contains(item.kind) && !item.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty && !item.refs.isEmpty && Set(item.refs).isSubset(of:validSources)
             && (item.commitment == nil || ["agreed","proposed","unclear"].contains(item.commitment!))
         }
-        guard value.facts.allSatisfy({ valid($0) && $0.kind != "summary" }),(value.overview ?? []).allSatisfy(valid),
-              !summary || !(value.overview ?? []).isEmpty else { throw ReportServiceError(kind:.invalidResponse,status:200,retryAfter:nil) }
+        let items = value.facts + (value.overview ?? [])
+        guard items.allSatisfy({ Set($0.refs).isSubset(of: validSources) }) else {
+            throw invalid("Il modello ha citato fonti non presenti nella parte di trascrizione elaborata.")
+        }
+        guard value.facts.allSatisfy({ valid($0) && $0.kind != "summary" }),
+              (value.overview ?? []).allSatisfy(valid) else {
+            throw invalid("Il modello ha prodotto record con categoria, testo, fonti o impegno non validi.")
+        }
+        guard !summary || !(value.overview ?? []).isEmpty else {
+            throw invalid("Il modello ha restituito una sintesi vuota.")
+        }
         value.facts = value.facts.map { source in
             var item = source
             if item.refs.contains("N") { item = Item(kind:"note",text:item.text,refs:item.refs,owner:item.owner,deadline:item.deadline,status:item.status,dependencies:item.dependencies,commitment:item.commitment) }

@@ -34,6 +34,7 @@ def build_icon(destination):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--sdk", type=Path, help="macOS SDK path for this build")
     parser.add_argument("--jobs", type=int, default=2, help="Limit Swift build CPU use (default: 2)")
     parser.add_argument("--skip-native", action="store_true")
     parser.add_argument("--dmg", action="store_true")
@@ -82,6 +83,8 @@ def main():
     env["CLANG_MODULE_CACHE_PATH"] = str(ROOT / ".build/clang")
     env["SWIFTPM_MODULECACHE_OVERRIDE"] = str(ROOT / ".build/clang")
     common = ["swift", "build", "--disable-sandbox", "--cache-path", ".build/cache", "--scratch-path", ".build/swift", "-c", config, "--jobs", str(max(1,args.jobs))]
+    if args.sdk:
+        common += ["--sdk", str(args.sdk.resolve())]
     run(common, env=env)
     binary_dir = Path(subprocess.check_output(common + ["--show-bin-path"], cwd=ROOT, env=env, text=True).strip())
     app = ROOT / ("dist/Verbale Preview.app" if args.preview else "dist/Verbale.app")

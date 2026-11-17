@@ -22,8 +22,10 @@ private final class GatewayMock: URLProtocol {
                 data = all
             }
             let json = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
-            Self.requestsValid = Self.requestsValid && request.timeoutInterval == 330 && json?["temperature"] == nil && json?["max_tokens"] as? Int != nil && request.value(forHTTPHeaderField: "Authorization") == "Bearer integration-test-token-no-secrets"
+            Self.requestsValid = Self.requestsValid && request.timeoutInterval == 330 && json?["stream"] as? Bool == false && json?["temperature"] == nil && json?["max_tokens"] as? Int != nil && request.value(forHTTPHeaderField: "Authorization") == "Bearer integration-test-token-no-secrets"
             switch Self.scenario {
+            case "incomplete": status = 502; body = #"{"error":{"code":"backend_incomplete_response"}}"#
+            case "new-quota": status = 429; body = #"{"error":{"code":"backend_quota_exceeded","retry_after":3}}"#
             case "quota": status = 429; body = #"{"error":{"code":"rate_limit_exceeded","message":"SECRET"}}"#
             case "login": status = 401; body = #"{"error":{"code":"backend_authentication_error","message":"SECRET"}}"#
             case "busy" where Self.reports == 1: status = 429; body = #"{"error":{"code":"gateway_busy"}}"#; headers["Retry-After"] = "0"
@@ -46,6 +48,16 @@ enum GatewayChecks {
         var meeting = Meeting(title: "Prova gateway", sources: [.system], destination: root, keepAudio: false)
         meeting.segments = [Segment(source: .system, start: 0, end: 5, text: "Decisione di prova")]; meeting.notes = "Appunto dimostrativo"
         do {
+            let decoder = JSONDecoder()
+            let claude = try decoder.decode(GatewayModel.self, from: Data(#"{"id":"claude/sonnet"}"#.utf8))
+            try gatewayAssert(claude.reportInputLimit == 48000 && claude.reportLowEffort && claude.reportProvider == "claude", "Claude defaults without custom metadata")
+            let groq = try decoder.decode(GatewayModel.self, from: Data(#"{"id":"groq/openai/gpt-oss-20b"}"#.utf8))
+            try gatewayAssert(groq.reportInputLimit == 6000, "Groq input budget")
+            let legacy = try decoder.decode(GatewayModel.self, from: Data(#"{"id":"claude/sonnet","input_limit_bytes":7000,"report_low_effort":false}"#.utf8))
+            try gatewayAssert(legacy.reportInputLimit == 7000 && !legacy.reportLowEffort, "legacy metadata precedence")
+            let response = HTTPURLResponse(url: URL(string: LocalGateway.defaultEndpoint)!, statusCode: 429, httpVersion: nil, headerFields: nil)!
+            let quota = ReportServiceError.decode(data: Data(#"{"error":{"code":"backend_quota_exceeded","retry_after":3}}"#.utf8), response: response)
+            try gatewayAssert(quota.kind == .backendQuota && !quota.retryable && quota.retryAfter == 3, "quota classification and body retry delay")
             let work = root.appendingPathComponent("work")
             try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
             try token.write(to: work.appendingPathComponent("verbale-token"), atomically: true, encoding: .utf8)
@@ -60,7 +72,7 @@ enum GatewayChecks {
             let report = try await ReportService.generateExtended(meeting: meeting, endpoint: LocalGateway.defaultEndpoint, model: "local/test", key: token, session: session)
             try gatewayAssert(report.contains("transcript.md#") && report.contains("notes.md") && report.contains("Gateway locale / local/test") && GatewayMock.requestsValid, "report contract and references")
             print("PASS gateway loopback validation, discovery and strict report contract")
-            for (scenario, expected, count) in [("quota", ReportServiceError.Kind.backendQuota, 1), ("login", .backendLogin, 1), ("length", .truncated, 2)] {
+            for (scenario, expected, count) in [("new-quota", ReportServiceError.Kind.backendQuota, 1), ("incomplete", .invalidResponse, 1), ("quota", ReportServiceError.Kind.backendQuota, 1), ("login", .backendLogin, 1), ("length", .truncated, 2)] {
                 GatewayMock.scenario = scenario; GatewayMock.reports = 0
                 do { _ = try await ReportService.generateExtended(meeting: meeting, endpoint: LocalGateway.defaultEndpoint, model: "local/test", key: token, session: session); throw GatewayFailure.failed("error accepted") }
                 catch let error as ReportServiceError { try gatewayAssert(error.kind == expected && GatewayMock.reports == count && !error.localizedDescription.contains("SECRET"), "gateway error category / bounded retry") }
@@ -81,7 +93,7 @@ enum GatewayChecks {
                 let endpoint = json["endpoint"]!
                 let models = try await LocalGateway.models(endpoint: endpoint, token: token)
                 try gatewayAssert(models.contains(where: { $0.id == "local/test" }), "live gateway discovery")
-                try gatewayAssert(models.first(where: { $0.id == "groq/test" })?.input_limit_bytes == 6000, "gateway supplies Groq input budget")
+                try gatewayAssert(models.first(where: { $0.id == "groq/test" })?.extendedInputLimit == 6000, "gateway supplies Groq input budget")
                 let groqReport = try await ReportService.generateExtended(meeting: meeting, endpoint: endpoint, model: "groq/test", key: token)
                 try gatewayAssert(groqReport.contains("transcript.md#") && groqReport.contains("Gateway locale / groq/test"), "Groq via gateway")
                 let expanded = try await ReportService.generateExtended(meeting:meeting,endpoint:endpoint,model:"local/grow",key:token)
@@ -120,11 +132,11 @@ enum GatewayChecks {
                 for _ in 0..<30 {
                     let (data, _) = try await LocalGateway.session.data(from: URL(string: endpoint)!.deletingLastPathComponent().appendingPathComponent("health"))
                     let h = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-                    if h["active_requests"] as? Int == 0 { idle = true; break }
+                    if (h["active_requests"] as? Int ?? h["inflight"] as? Int) == 0 { idle = true; break }
                     try await Task.sleep(nanoseconds: 50_000_000)
                 }
                 try gatewayAssert(idle, "gateway cancellation releases active request")
-                print("PASS actual llm-api integration: discovery, report, resume, auth, quota, truncation, redirect blocking and cancellation (fake local and Groq backends)")
+                print("PASS actual gateway integration: discovery, report, resume, auth, quota, truncation, redirect blocking and cancellation (fake local and Groq backends)")
             } catch { failures += 1; print("FAIL actual gateway integration: \(error)") }
         }
         return failures

@@ -111,7 +111,7 @@ public enum ReportService {
             })
             guard let selected = models.first(where: { $0.id == model }) else { throw VerbaleError.message("L’alias selezionato non è configurato nel gateway. Premi Verifica e aggiorna modelli nelle Impostazioni e scegli un modello disponibile.") }
             let system = ReportPrompt.system
-            let limit = min(14000, max(512, selected.input_limit_bytes ?? 14000))
+            let limit = min(14000, max(512, selected.extendedInputLimit))
             // Reserve the actual instruction overhead rather than an approximate 400 bytes.
             let extractionPrefix = "FONTI DELLA RIUNIONE:\n", extractionSuffix = "\nFINE FONTI\n" + ReportPrompt.extraction
             let finalPrefix = "REPORT FINALE dalle seguenti FONTI DELLA RIUNIONE:\n", finalSuffix = "\nFINE FONTI"
