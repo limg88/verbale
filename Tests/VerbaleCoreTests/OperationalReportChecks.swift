@@ -151,11 +151,28 @@ enum OperationalReportChecks {
             try opRequire(largeAttempts > 0 && (1...12).allSatisfy { report.contains("task S\($0)") },"split preserves every activity and reference")
             let before = largeAttempts;_ = try await generate(long,directory:folder);try opRequire(largeAttempts == before,"oversized parents are not retried on resume")
         }
+        await check("invalid large extraction is split and validated before caching") {
+            let folder = root.appendingPathComponent("invalid-large")
+            var invalidAttempts = 0
+            OperationalMock.handler = { request in
+                let input = OperationalMock.user(request)
+                if input.hasPrefix("FONTI") && input.utf8.count > 22000 {
+                    invalidAttempts += 1
+                    return (200, reply(["facts":[["kind":"action","text":"Invalid","refs":["S999"]]]]))
+                }
+                return input.hasPrefix("FONTI") ? (200,reply(evidence(input))):(200,reply(["facts":[],"overview":[["kind":"summary","text":"Sintesi","refs":["S1"]]]]))
+            }
+            let report = try await generate(long, directory: folder)
+            try opRequire(invalidAttempts > 0 && !report.contains("Invalid") && (1...12).allSatisfy { report.contains("task S\($0)") }, "only validated evidence published after split")
+            let before = invalidAttempts
+            _ = try await generate(long, directory: folder)
+            try opRequire(invalidAttempts == before, "resume reuses validated children")
+        }
         await check("invalid citations rejected and failed responses not cached") {
             let folder = root.appendingPathComponent("invalid");var attempts = 0
             OperationalMock.handler = { _ in attempts += 1;return (200,reply(["facts":[["kind":"action","text":"Inventata","refs":["S999"]]]])) }
             for _ in 0..<2 {
-                do { _ = try await generate(short,directory:folder);throw OperationalFailure.failed("bad evidence published") } catch let error as ReportServiceError { try opRequire(error.kind == .invalidResponse,"invalid references rejected") }
+                do { _ = try await generate(short,directory:folder);throw OperationalFailure.failed("bad evidence published") } catch let error as ReportServiceError { try opRequire(error.kind == .invalidResponse && error.validationDetail?.contains("fonti non presenti") == true,"invalid references rejected with diagnostic") }
             }
             try opRequire(attempts == 2,"bad output not reused")
         }

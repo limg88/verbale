@@ -408,3 +408,38 @@ Il cestino compare anche nel dettaglio della riunione. La rimozione mantiene la 
 Puoi aprire l’archivio e consultare trascrizioni, note e report di altre riunioni mentre registri. Una barra mostra sempre titolo e durata della registrazione attiva e permette di terminarla. **Vai alla registrazione** o la voce **Riunione** della barra laterale riportano al documento in registrazione.
 
 Acquisizione, timer, livelli audio, marcatori, screenshot, trascrizione live e stop usano la sessione di registrazione dedicata. Aprire un’altra riunione non ne cambia la destinazione. Al termine, viene accodata soltanto la sessione registrata e il documento consultato rimane selezionato. La registrazione attiva resta protetta dalla rimozione anche quando consulti un altro verbale.
+
+
+### Collaudo non streaming con llm-gateway
+
+Il client invia esplicitamente `stream: false`. Per provare il gateway Go,
+configura il suo URL loopback con suffisso `/v1` e inserisci il token Bearer
+nelle Impostazioni. Il launcher esistente richiede ancora
+`start-verbale.command`; avvia il gateway Go dal Terminale per il collaudo.
+Le preferenze salvate e il gateway predefinito vengono conservati.
+
+La discovery standard è sufficiente. In assenza dei metadati legacy,
+gli identificativi `claude` e `claude/*` usano 48000 byte per i report
+operativi ed effort low; `groq/*` usa 6000 byte. Gli altri identificativi,
+inclusi gli alias personalizzati, usano 14000 byte ed effort predefinito.
+I metadati espliciti del gateway mantengono la precedenza.
+Queste soglie sono politiche del client, non limiti di contesto del modello.
+
+Quota esaurita interrompe il report senza retry automatici. Nei report operativi,
+un’estrazione non valida su un blocco lungo può essere recuperata suddividendolo
+in parti più piccole, entro i limiti di profondità, richieste e budget esistenti.
+Ogni risultato viene nuovamente validato prima del salvataggio. Un blocco piccolo
+non valido interrompe il report con un dettaglio diagnostico privo di contenuti
+della riunione. I checkpoint già completati restano disponibili.
+Il client legge `retry_after` dal corpo quando manca un header valido.
+
+Il collaudo con gateway Go reale e upstream sintetici si avvia con:
+
+```sh
+python3 scripts/test_go_gateway.py --project ../llm-gateway
+```
+
+Richiede Go, Swift e la possibilità di aprire porte loopback temporanee.
+Compila il gateway in una directory temporanea, verifica report estesi,
+operativi, worker, checkpoint, quota, troncamento, crescita budget,
+autenticazione, redirect e cancellazione. Arresta il processo al termine.
