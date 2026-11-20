@@ -41,7 +41,7 @@ enum ProjectReport {
                 try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:file.path)
             }
             let client = ReportClient(url:base.appendingPathComponent("chat/completions"),model:model,key:key,session:transport,run:run,progress:progress,reasoningEffort:effort)
-            func complete(_ user:String,valid:Set<String>,phase:String,index:Int,count:Int,summary:Bool = false) async throws -> ProjectEvidence {
+            func complete(_ user:String,valid:Set<String>,phase:String,index:Int,count:Int,summary:Bool = false,overview:Bool = false) async throws -> ProjectEvidence {
                 try run.check()
                 guard user.utf8.count <= limit else { throw ReportServiceError(kind:.intermediateCapacity,status:0,retryAfter:nil) }
                 let id = hash(phase+"\n"+user+"\n"+String(policy.budget(final:summary,bytes:user.utf8.count)))
@@ -54,7 +54,7 @@ enum ProjectReport {
                 else if selected.reportProvider == "claude" {
                     budget = user.utf8.count > 32000 ? policy.maxOutputTokens:min(policy.maxOutputTokens,max(8192,4096+(user.utf8.count/4000)*1024))
                 } else { budget = policy.budget(final:false,bytes:user.utf8.count) }
-                let text = try await client.complete(system:ProjectReportPrompt.system,user:user,maxOutput:budget,phase:phase,index:index,count:count)
+                let text = try await client.complete(system:ProjectReportPrompt.system,user:user,maxOutput:budget,phase:phase,index:index,count:count,schema:ProjectEvidence.schema(overview:summary || overview))
                 let evidence = try ProjectEvidence.parse(text,validSources:valid,summary:summary)
                 try run.check();cache.responses[id] = text;try save()
                 var metric = ReportMetric(phase:"capsule",index:index,count:count);metric.records = evidence.facts.count;metric.outputBytes = text.utf8.count;diagnostics(metric)
@@ -66,8 +66,9 @@ enum ProjectReport {
                 if !cache.splits.contains(parent) {
                     do {
                         progress("Estrazione operativa \(index) di \(batches.count)"+(depth > 0 ? " · parte ridotta":""))
-                        let user = prefix+batch.text+suffix+ProjectReportPrompt.extraction(overview:batches.count == 1 && depth == 0)
-                        return [try await complete(user,valid:batch.refs,phase:"extraction",index:index,count:batches.count)]
+                        let overview = batches.count == 1 && depth == 0
+                        let user = prefix+batch.text+suffix+ProjectReportPrompt.extraction(overview:overview)
+                        return [try await complete(user,valid:batch.refs,phase:"extraction",index:index,count:batches.count,overview:overview)]
                     } catch let error as ReportServiceError where canSplit && [.truncated,.tooLarge,.gatewayTimeout,.invalidResponse].contains(error.kind) {
                         cache.splits.insert(parent);try save()
                     }

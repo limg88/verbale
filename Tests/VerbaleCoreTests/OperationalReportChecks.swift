@@ -123,6 +123,35 @@ enum OperationalReportChecks {
             let actions = report.components(separatedBy:"## Attività e responsabilità")[1].components(separatedBy:"## Rischi")[0]
             try opRequire(!actions.contains("Proposta personale"),"personal hypothesis is not a project commitment")
         }
+        await check("evidence requests constrain the answer with a strict JSON schema") {
+            var extraction:[[String:Any]] = [],summary:[[String:Any]] = []
+            OperationalMock.handler = { request in
+                let input = OperationalMock.user(request)
+                let format = OperationalMock.payload(request)["response_format"] as? [String:Any] ?? [:]
+                let schema = (format["json_schema"] as? [String:Any])?["schema"] as? [String:Any] ?? [:]
+                if input.hasPrefix("FONTI") { extraction.append(format["type"] as? String == "json_schema" ? schema:[:]);return (200,reply(evidence(input))) }
+                summary.append(schema)
+                return (200,reply(["facts":[],"overview":[["kind":"summary","text":"Sintesi","refs":["S1"]]]]))
+            }
+            _ = try await generate(long)
+            func required(_ schema:[String:Any])->Set<String> { Set(schema["required"] as? [String] ?? []) }
+            try opRequire(extraction.count > 1 && extraction.allSatisfy { required($0) == ["facts"] && $0["additionalProperties"] as? Bool == false },"multi-block extraction allows facts only")
+            try opRequire(summary.count == 1 && required(summary[0]) == ["facts","overview"],"overview request requires the overview")
+            let item = (((extraction[0]["properties"] as? [String:Any])?["facts"] as? [String:Any])?["items"] as? [String:Any]) ?? [:]
+            let kinds = ((item["properties"] as? [String:Any])?["kind"] as? [String:Any])?["enum"] as? [String] ?? []
+            try opRequire(Set(kinds) == ["fact","decision","action","risk","opportunity","question","note","conflict"] && required(item).count == 8 && item["additionalProperties"] as? Bool == false,"records are closed, with the accepted kinds only")
+        }
+        await check("a gateway refusing the schema falls back once to the prompt contract") {
+            var constrained = 0,plain = 0
+            OperationalMock.handler = { request in
+                let input = OperationalMock.user(request)
+                if OperationalMock.payload(request)["response_format"] != nil { constrained += 1;return (400,#"{"error":{"code":"backend_invalid_request"}}"#) }
+                plain += 1
+                return input.hasPrefix("FONTI") ? (200,reply(evidence(input))):(200,reply(["facts":[],"overview":[["kind":"summary","text":"Sintesi","refs":["S1"]]]]))
+            }
+            let report = try await generate(long)
+            try opRequire(constrained == 1 && plain > 2 && report.contains("task S12"),"one refusal, then the whole report without the parameter")
+        }
         await check("failed final resumes without re-extracting successful blocks") {
             let folder = root.appendingPathComponent("resume");var extractions = 0
             OperationalMock.handler = { request in

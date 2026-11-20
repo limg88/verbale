@@ -458,7 +458,25 @@ enum ReportChecks {
                 do { _ = try await generate(long, directory: directory); throw ReportCheckError.failed("invalid source accepted") }
                 catch let error as ReportServiceError { try require(error.kind == .invalidResponse, "invalid references rejected") }
             }
-            try require(requests == 2, "invalid completed response not reused")
+            try require(requests == 6, "invalid completed response not reused; three bounded attempts per run")
+        }
+        await check("an occasional invalid intermediate is asked again instead of failing the report") {
+            var requests = 0, rejected = 0
+            ReportMock.handler = { request in
+                requests += 1
+                let input = user(request)
+                guard input.hasPrefix("FONTI") else { return (200, [:], success) }
+                if input.contains("[[S3]]") && rejected < 2 {
+                    rejected += 1
+                    return (200, [:], reply(rejected == 1 ? #"{"facts":[{"kind":"decision","text":"Inventata","refs":["S999"]}]}"# : #"{"facts":[{"kind":"fact","text":"Senza fonte","refs":[]}]}"#))
+                }
+                return (200, [:], reply(capsule(input)))
+            }
+            let report = try await generate(long)
+            try require(rejected == 2 && report.contains("Decisione"), "two rejected answers for one block do not stop a long report")
+            ReportMock.handler = { _ in (200, [:], reply(#"{"facts":[{"kind":"decision","text":"Inventata","refs":["S999"]}]}"#)) }
+            do { _ = try await generate(long); throw ReportCheckError.failed("invalid source accepted") }
+            catch let error as ReportServiceError { try require(error.localizedDescription.contains("fonti non presenti"), "the reason of the rejection is shown") }
         }
         print("Report pipeline: \(checks) groups, \(failures) failures (fake gateway; no real inference)")
         return failures
