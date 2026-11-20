@@ -18,6 +18,20 @@ struct ProjectEvidence:Codable {
     }
     var facts:[Item]
     var overview:[Item]?
+    /// Strict-mode compatible: closed objects, every property required, optional values nullable.
+    static func schema(overview:Bool)->[String:Any] {
+        let text:[String:Any] = ["type":"string"],optional:[String:Any] = ["type":["string","null"]]
+        let refs:[String:Any] = ["type":"array","items":["type":"string"]]
+        func object(_ properties:[String:Any])->[String:Any] {
+            ["type":"object","properties":properties,"required":properties.keys.sorted(),"additionalProperties":false]
+        }
+        let fact = object(["kind":["type":"string","enum":["fact","decision","action","risk","opportunity","question","note","conflict"]],
+                           "text":text,"refs":refs,"owner":optional,"deadline":optional,"status":optional,"dependencies":optional,
+                           "commitment":["type":["string","null"],"enum":["agreed","proposed","unclear",NSNull()]]])
+        var properties:[String:Any] = ["facts":["type":"array","items":fact]]
+        if overview { properties["overview"] = ["type":"array","items":object(["kind":["type":"string","enum":["summary"]],"text":text,"refs":refs])] }
+        return object(properties)
+    }
     static func parse(_ text:String,validSources:Set<String>,summary:Bool = false) throws -> Self {
         var json = text.trimmingCharacters(in:.whitespacesAndNewlines)
         if (json.hasPrefix("```json\n") || json.hasPrefix("```\n")),json.hasSuffix("```") {

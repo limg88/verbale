@@ -142,14 +142,27 @@ public enum ReportService {
                     cache.removeValue(forKey:id)
                 }
                 guard user.utf8.count <= limit else { throw ReportServiceError(kind: .intermediateCapacity, status: 0, retryAfter: nil) }
-                let response = try await client.complete(system: sectionTitle != nil ? ReportPrompt.section : (final ? system : ReportPrompt.evidence), user: user, maxOutput: output,
-                                                     phase: phase, index: index, count: count)
-                let text = sectionTitle.map { ReportComposition.body(response,title:$0) } ?? response
-                guard !text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else { throw ReportServiceError(kind:.invalidResponse,status:200,retryAfter:nil) }
-                if !final {
-                    let capsule = try ReportCapsule.parse(text, sources: user)
-                    var metric = ReportMetric(phase: "capsule", index: index, count: count)
-                    metric.outputBytes = text.utf8.count; metric.records = capsule.facts.count; diagnostics(metric)
+                // A model occasionally cites a source outside the block or leaves a record
+                // without one. Records are never dropped or repaired: the same block is asked
+                // again, a bounded number of times, so one bad answer does not end a long report.
+                var text = "", attempt = 0
+                while true {
+                    attempt += 1
+                    let response = try await client.complete(system: sectionTitle != nil ? ReportPrompt.section : (final ? system : ReportPrompt.evidence), user: user, maxOutput: output,
+                                                         phase: phase, index: index, count: count, schema: final ? nil : ReportCapsule.schema)
+                    text = sectionTitle.map { ReportComposition.body(response,title:$0) } ?? response
+                    guard !text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else { throw ReportServiceError(kind:.invalidResponse,status:200,retryAfter:nil) }
+                    if final { break }
+                    do {
+                        let capsule = try ReportCapsule.parse(text, sources: user)
+                        var metric = ReportMetric(phase: "capsule", index: index, count: count)
+                        metric.outputBytes = text.utf8.count; metric.records = capsule.facts.count; diagnostics(metric)
+                        break
+                    } catch let error as ReportServiceError where error.kind == .invalidResponse && attempt < 3 {
+                        var metric = ReportMetric(phase: "capsule", index: index, count: count, attempt: attempt)
+                        metric.outputBytes = text.utf8.count; metric.outcome = "invalid"; diagnostics(metric)
+                        progress("Estrazione \(index) di \(count) · risposta non valida, nuovo tentativo \(attempt + 1) di 3")
+                    }
                 }
                 try run.check()
                 cache[id] = text

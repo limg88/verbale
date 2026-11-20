@@ -156,6 +156,12 @@ struct ReportCapsule: Codable {
         let refs: [String]
     }
     var facts: [Fact]
+    static let schema: [String: Any] = {
+        let fact: [String: Any] = ["type":"object","additionalProperties":false,"required":["kind","refs","text"],"properties":[
+            "kind":["type":"string","enum":["fact","decision","action","risk","opportunity","question","note","conflict"]],
+            "text":["type":"string"],"refs":["type":"array","items":["type":"string"]]]]
+        return ["type":"object","additionalProperties":false,"required":["facts"],"properties":["facts":["type":"array","items":fact]]]
+    }()
     static func parse(_ text: String, sources: String) throws -> Self {
         var json = text.trimmingCharacters(in:.whitespacesAndNewlines)
         // Some otherwise valid providers wrap JSON in one Markdown fence.
@@ -163,12 +169,21 @@ struct ReportCapsule: Codable {
         if (json.hasPrefix("```json\n") || json.hasPrefix("```\n")),json.hasSuffix("```") {
             json = String(json.dropFirst(json.hasPrefix("```json\n") ? 8:4).dropLast(3)).trimmingCharacters(in:.whitespacesAndNewlines)
         }
-        guard let data = json.data(using: .utf8), let capsule = try? JSONDecoder().decode(Self.self, from: data),
-              capsule.facts.allSatisfy({ fact in
-                  ["fact", "decision", "action", "risk", "opportunity", "question", "note", "conflict"].contains(fact.kind)
-                  && !fact.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !fact.refs.isEmpty
-                  && fact.refs.allSatisfy { sources.contains("[[\($0)]]") }
-              }) else { throw ReportServiceError(kind: .invalidResponse, status: 200, retryAfter: nil) }
+        func invalid(_ detail: String) -> ReportServiceError {
+            var error = ReportServiceError(kind: .invalidResponse, status: 200, retryAfter: nil)
+            error.validationDetail = detail
+            return error
+        }
+        guard let capsule = try? JSONDecoder().decode(Self.self, from: Data(json.utf8)) else {
+            throw invalid("Il modello non ha restituito il JSON richiesto per l’estrazione.")
+        }
+        guard capsule.facts.allSatisfy({ $0.refs.allSatisfy { sources.contains("[[\($0)]]") } }) else {
+            throw invalid("Il modello ha citato fonti non presenti nella parte di trascrizione elaborata.")
+        }
+        guard capsule.facts.allSatisfy({ fact in
+            ["fact", "decision", "action", "risk", "opportunity", "question", "note", "conflict"].contains(fact.kind)
+            && !fact.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !fact.refs.isEmpty
+        }) else { throw invalid("Il modello ha prodotto record con categoria, testo o fonti non validi.") }
         // "note" is often used by text models for an observation heard in the
         // call. Personal notes are defined by source N, never by that label alone.
         return Self(facts:capsule.facts.map { fact in

@@ -116,6 +116,8 @@ final class ReportClient {
     let run: ReportRun
     let reasoningEffort:String?
     let progress: @Sendable (String) -> Void
+    /// Set once a gateway refuses `response_format`: the rest of the run relies on the prompt alone.
+    private var schemaRefused = false
     init(url: URL, model: String, key: String, session: URLSession, run: ReportRun, progress: @escaping @Sendable (String) -> Void, reasoningEffort:String? = nil) {
         self.url = url; self.model = model; self.key = key; self.session = session; self.run = run; self.progress = progress; self.reasoningEffort = reasoningEffort
     }
@@ -137,7 +139,17 @@ final class ReportClient {
         }
         try run.check()
     }
-    func complete(system: String, user: String, maxOutput: Int, phase: String, index: Int, count: Int) async throws -> String {
+    /// A schema makes the backend constrain the answer, so a model cannot append
+    /// prose or a second corrected object to the JSON. Gateways without structured
+    /// output answer 400: the request is repeated once without it.
+    func complete(system: String, user: String, maxOutput: Int, phase: String, index: Int, count: Int, schema: [String: Any]? = nil) async throws -> String {
+        if let schema, !schemaRefused {
+            do { return try await send(system: system, user: user, maxOutput: maxOutput, phase: phase, index: index, count: count, schema: schema) }
+            catch let error as ReportServiceError where error.kind == .gatewayConfig { schemaRefused = true }
+        }
+        return try await send(system: system, user: user, maxOutput: maxOutput, phase: phase, index: index, count: count, schema: nil)
+    }
+    private func send(system: String, user: String, maxOutput: Int, phase: String, index: Int, count: Int, schema: [String: Any]?) async throws -> String {
         var budget = run.outputBudget(base:maxOutput,phase:phase,bytes:user.utf8.count), expanded = false
         for attempt in 1...max(1, run.policy.maxAttempts) {
             run.currentMetric = ReportMetric(phase:phase,index:index,count:count,attempt:attempt,budget:budget,inputBytes:user.utf8.count)
@@ -147,6 +159,7 @@ final class ReportClient {
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
             var body:[String:Any] = ["model":model,"stream":false,"max_tokens":budget,"messages":[["role":"system","content":system],["role":"user","content":user]]]
             if let reasoningEffort { body["reasoning_effort"] = reasoningEffort }
+            if let schema { body["response_format"] = ["type":"json_schema","json_schema":["name":"report_evidence","strict":true,"schema":schema]] }
             request.httpBody = try JSONSerialization.data(withJSONObject:body)
             let data: Data, reply: URLResponse
             do {
