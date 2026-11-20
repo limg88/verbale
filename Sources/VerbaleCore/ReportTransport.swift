@@ -1,5 +1,8 @@
 import Foundation
 import CoreFoundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking // URLSession lives here on Linux and Windows
+#endif
 
 /// Verbale speaks only to the local gateway. Provider details stay behind that boundary.
 public struct ReportFailureContext: Sendable {
@@ -54,7 +57,7 @@ public struct ReportServiceError: LocalizedError, Sendable {
     public static func duration(_ text: String?) -> Double? {
         guard let text else { return nil }
         if let n = Double(text), n.isFinite, n >= 0 { return n }
-        let regex = try! NSRegularExpression(pattern: #"(\d+(?:\.\d+)?)(ms|h|m|s)"#)
+        let regex = try! NSRegularExpression(pattern: #"([0-9]+(?:\.[0-9]+)?)(ms|h|m|s)"#)
         let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
         guard !matches.isEmpty else { return nil }
         let total = matches.reduce(0.0) { sum, match in

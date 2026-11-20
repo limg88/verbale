@@ -1,5 +1,7 @@
 # Stato della prima build — Verbale 0.1
 
+> **Documento storico.** Descrive la versione 0.1 e non viene aggiornato. Per lo stato corrente vedi `README.md`, `CHANGELOG.md` e `AUDIT_REPORT.md`.
+
 Build macOS arm64 pronta in `dist/Verbale.app` e `dist/Verbale-0.1.0-arm64.dmg`.
 
 ## Implementato

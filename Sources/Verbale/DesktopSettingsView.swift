@@ -38,7 +38,7 @@ struct DesktopSettingsView: View {
                     Picker("Trascrizione", selection: $model.transcriptionTiming) {
                         ForEach(TranscriptionTiming.allCases) { Text($0.label).tag($0) }
                     }.disabled(model.sessionLocked)
-                    Text("Al termine: durante la call viene salvato l’audio; testo e interlocutori vengono elaborati dopo Stop. Se Teams è ancora in chiamata, l’attesa è visibile e la trascrizione riparte in background al termine della call. Durante la registrazione: il testo appare in diretta, con maggiori consumi.").font(.callout).foregroundStyle(.secondary)
+                    Text("Al termine: durante la call viene salvato l’audio; testo e interlocutori vengono elaborati al termine della registrazione. Se Teams è ancora in chiamata, l’attesa è visibile e la trascrizione riparte in background al termine della call. Durante la registrazione: il testo appare in diretta, con maggiori consumi.").font(.callout).foregroundStyle(.secondary)
                     Text("L’audio viene salvato sul Mac man mano. La cartella di output viene aggiornata ogni 30 secondi e al termine.").font(.callout).foregroundStyle(.secondary)
                     Text("Le preferenze valgono per le prossime registrazioni.").font(.callout).foregroundStyle(.secondary)
                 }
@@ -116,7 +116,7 @@ struct DesktopSettingsView: View {
                         Button("Aggiorna rilevamento") { Task { await model.refreshAudioRouting() } }.disabled(model.routingRefreshing)
                         if model.routingRefreshing { ProgressView().controlSize(.small) }
                     }
-                    if !model.routingStatus.isEmpty { Text(model.routingStatus).font(.caption).foregroundStyle(.orange) }
+                    if !model.routingStatus.isEmpty { Text(model.routingStatus).font(.caption).foregroundStyle(Palette.warning) }
                     if model.isRecording,let route = model.recording?.audioRoute {
                         Text("In questa registrazione: "+[route.inputName.map { "microfono "+$0 },route.outputName.map { "uscita "+$0 }].compactMap { $0 }.joined(separator:" · ")).font(.caption).foregroundStyle(.secondary)
                         Text("Le modifiche ai dispositivi si applicano alla prossima registrazione.").font(.caption).foregroundStyle(.secondary)

@@ -1,0 +1,16 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'io.verbale.probe'
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+    defaultConfig {
+        applicationId 'io.verbale.probe'
+        minSdk 29
+        targetSdk 36
+        versionCode 1
+        versionName '0.1.0'
+        testInstrumentationRunner 'io.verbale.probe.ProbeInstrumentation'
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    lint { abortOnError true }
+}

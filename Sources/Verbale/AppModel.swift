@@ -66,7 +66,9 @@ import VerbaleCore
     @Published var reportBusy = false
     @Published var reportProgress = ""
     private var reportTask: Task<Void, Never>?
-    @Published var status = "Scegli la destinazione e prepara i modelli."
+    // Reassigned every second by timers, usually with the same text: publish only real changes
+    // so the whole dashboard is not re-rendered while idle.
+    var status = "Scegli la destinazione e prepara i modelli." { willSet { if newValue != status { objectWillChange.send() } } }
     private var meetingExportErrors:[UUID:String] = [:]
     @Published var exportError: String?
     @Published var error: String?
@@ -93,7 +95,7 @@ import VerbaleCore
             configureTeamsAutomation()
         }
     }
-    @Published var teamsStatus = "Automazione Teams disattivata"
+    var teamsStatus = "Automazione Teams disattivata" { willSet { if newValue != teamsStatus { objectWillChange.send() } } }
     @Published var quietMode = false
     @Published var widgetPinned = true {
         didSet { widgetPanel?.level = widgetPinned ? .floating : .normal }
@@ -390,10 +392,25 @@ import VerbaleCore
         if isRecording {showRecording();return}
         refinementDraft = nil; learningSummary = ""; speakerAudit = nil; current = nil; meetingSection = "transcript"; speakersExpanded = false; voiceMatchesExpanded = false; focusedSegmentID = nil; focusNotes = false; title = ""; tab = "session"; status = "Pronto per una nuova conversazione."
     }
+    /// Startup cannot continue without the data folder: explain why and where instead of crashing.
+    private static func failStartup(_ title: String, _ error: Error, dataRoot: URL?) -> Never {
+        let folder = dataRoot ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Verbale", isDirectory: true)
+        let message = "\(error.localizedDescription)\n\nCartella dati: \(folder.path)\n\nVerifica lo spazio su disco e i permessi della cartella, poi riapri Verbale."
+        // The model is created while SwiftUI builds the scene, where a modal AppKit run loop
+        // aborts the process; this system alert blocks without re-entering the app's event loop.
+        var response: CFOptionFlags = 0
+        CFUserNotificationDisplayAlert(0, kCFUserNotificationStopAlertLevel, nil, nil, nil, title as CFString, message as CFString, "Esci" as CFString, "Mostra nel Finder" as CFString, nil, &response)
+        if response & 0x3 == kCFUserNotificationAlternateResponse {
+            var visible = folder
+            while !FileManager.default.fileExists(atPath: visible.path) && visible.path != "/" { visible.deleteLastPathComponent() }
+            NSWorkspace.shared.activateFileViewerSelecting([visible])
+        }
+        exit(1)
+    }
     init() {
         let previewRoot = (Bundle.main.object(forInfoDictionaryKey: "VerbalePreviewDataRoot") as? String).map { URL(fileURLWithPath: $0, isDirectory: true) }
         do { store = try SessionStore(root: previewRoot?.appendingPathComponent("Sessions")); models = try ModelManager(directory: previewRoot?.appendingPathComponent("Models")) }
-        catch { fatalError("Impossibile creare la cartella dati Verbale: \(error)") }
+        catch { Self.failStartup("Impossibile creare la cartella dati di Verbale", error, dataRoot: previewRoot) }
         projectTracker = ProjectTracker(file: store.root.deletingLastPathComponent().appendingPathComponent("project-ledger.json"))
         do {
             workDisk=try MeetingWorkDisk(root:store.root)
@@ -403,9 +420,9 @@ import VerbaleCore
             })
             workQueue=try MeetingWorkQueue(file:store.root.deletingLastPathComponent().appendingPathComponent("work-queue.json"),execute:{ job,progress in try await processor.run(job,progress:progress) })
             workJobs=workQueue.initialSnapshot
-        } catch { fatalError("Impossibile preparare la coda: \(error)") }
+        } catch { Self.failStartup("Impossibile preparare la coda di elaborazione di Verbale", error, dataRoot: previewRoot) }
         if previewRoot == nil {
-            Task {
+            Task { [self] in
                 await workQueue.start(observe:{ [weak self] jobs in Task { @MainActor in self?.acceptWork(jobs) } })
                 if let warning=await workQueue.restorationWarning() {self.error=warning}
                 let existing=await workQueue.snapshot()
@@ -439,6 +456,10 @@ import VerbaleCore
         do { meetings = try store.list().map { meeting in
             if meeting.state == .recording || meeting.state == .processing { return (try? store.recover(meeting)) ?? meeting }; return meeting
         } } catch { self.error = error.localizedDescription }
+        let unreadable = store.unreadableSessions()
+        if !unreadable.isEmpty {
+            self.error = (unreadable.count == 1 ? "Una riunione in archivio non è leggibile e non viene mostrata." : "\(unreadable.count) riunioni in archivio non sono leggibili e non vengono mostrate.") + " I file non sono stati modificati e restano in:\n" + unreadable.map(\.path).prefix(3).joined(separator: "\n")
+        }
     }
     func chooseDestination() {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
@@ -570,12 +591,20 @@ import VerbaleCore
         guard var meeting = recording, meeting.id == id, !meeting.chunks.contains(where: { $0.id == chunk.id }) else { return }
         meeting.chunks.append(chunk); meeting.duration = max(meeting.duration, chunk.start + chunk.duration); meeting.exported = false
         installRecording(meeting)
-        do { try store.save(meeting) } catch { self.error = error.localizedDescription; if isRecording { Task { await stop() } } }
+        // Capture has already written the chunk file and fsynced its journal row before this callback,
+        // and both stop() and launch recovery replay the journal. Rewriting the whole, ever-growing
+        // manifest for every 5 s chunk is therefore redundant: refresh it at most every 10 s.
+        let now = ProcessInfo.processInfo.systemUptime
+        if meeting.chunks.count == 1 || now - lastChunkManifestSave >= 10 {
+            lastChunkManifestSave = now
+            do { try store.save(meeting) } catch { self.error = error.localizedDescription; if isRecording { Task { await stop() } } }
+        }
         exportRecording()
         // stop() replays the durable journal and owns final processing. A late
         // capture callback must not race deferred model loading after Stop.
         if !failedProcessing && isRecording { scheduleProcessing() }
     }
+    private var lastChunkManifestSave: TimeInterval = 0
     private func scheduleProcessing() {
         guard processing == nil, !transcriptionDeferred else { return }
         processing = Task(priority: .utility) { [weak self] in
@@ -604,15 +633,22 @@ import VerbaleCore
                 let needsEchoCancellation = chunk.source == .microphone && meeting.usesEchoCancellation
                 let neighborhood = siblings[max(0, index - (needsEchoCancellation ? 2 : 1))...min(index + 1, siblings.count - 1)]
                 let transcriptionOffset = siblings[max(0, index - 1)].start
-                var audio: [Float] = []; var offset = neighborhood.first!.start
-                for item in neighborhood {
-                    let start = Int((item.start - offset) * 16000)
-                    guard start < 60 * 16000 else { continue }
-                    if start > audio.count { audio.append(contentsOf: repeatElement(0, count: start - audio.count)) }
-                    let input = try AudioFiles.samples(audioURL(meeting, filename: item.filename))
-                    let overlap = max(0, audio.count - start)
-                    audio.append(contentsOf: input.dropFirst(overlap))
-                }
+                var offset = neighborhood.first!.start
+                // Decode the audio files off the main actor: this loop runs during the call.
+                let inputs = neighborhood.map { (start: $0.start, url: audioURL(meeting, filename: $0.filename)) }
+                let firstStart = offset
+                var audio: [Float] = try await Task.detached(priority: .utility) {
+                    var audio: [Float] = []
+                    for item in inputs {
+                        let start = Int((item.start - firstStart) * 16000)
+                        guard start < 60 * 16000 else { continue }
+                        if start > audio.count { audio.append(contentsOf: repeatElement(0, count: start - audio.count)) }
+                        let input = try AudioFiles.samples(item.url)
+                        let overlap = max(0, audio.count - start)
+                        audio.append(contentsOf: input.dropFirst(overlap))
+                    }
+                    return audio
+                }.value
                 var cleanedFilename: String?
                 var incompleteReference = false
                 if needsEchoCancellation {
@@ -624,7 +660,8 @@ import VerbaleCore
                     guard end - begin == chunk.sampleCount else { throw VerbaleError.message("Blocco microfono AEC incompleto") }
                     incompleteReference = result.covered[begin..<end].contains(0)
                     let filename = "audio/cleaned_\(chunk.id.uuidString).caf"
-                    try AudioFiles.write(Array(audio[begin..<end]), to: store.workspace(meeting.id).appendingPathComponent(filename))
+                    let cleaned = Array(audio[begin..<end]), cleanedURL = store.workspace(meeting.id).appendingPathComponent(filename)
+                    try await Task.detached(priority: .utility) { try AudioFiles.write(cleaned, to: cleanedURL) }.value
                     cleanedFilename = filename
                 }
                 // Give the adaptive filter extra warm-up without expanding ASR work.
@@ -1019,8 +1056,12 @@ extension AppModel {
             receive(chunk,id:meeting.id)
         }
         await Task.yield()
-        let pending = try store.read(meeting.id)
+        // The manifest is refreshed at most every 10 s while recording; chunks are durable through the
+        // journal, which is what stop() and launch recovery replay.
+        let onDisk = try store.read(meeting.id), pending = try store.recover(onDisk)
+        let manifestThrottled = onDisk.chunks.count < 3
         var checks = ["deferred recording persists all chunks without ASR":pending.chunks.count == 3 && pending.chunks.allSatisfy { !$0.processed } && processing == nil && error == nil && !working]
+        checks["chunk callbacks do not rewrite the manifest for every chunk"] = manifestThrottled && onDisk.chunks.count >= 1
         isRecording = false
         current?.state = .processing
         let late = AudioChunk(source:.system,start:0.3,sampleCount:1600,filename:"audio/deferred-late.caf")

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking // URLSession lives here on Linux and Windows
+#endif
 import Security
 import CryptoKit
 
@@ -6,7 +9,10 @@ public enum Keychain {
     public static func read(account: String = "gateway-token") -> String {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "io.verbale.reports", kSecAttrAccount as String: account, kSecReturnData as String: true]
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return "" }
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // "Not found" is the normal first-run case; anything else (locked or denied keychain) is worth a trace.
+        if status != errSecSuccess && status != errSecItemNotFound { CoreLog.warning("Keychain read for \(account) failed with OSStatus \(status)") }
+        guard status == errSecSuccess, let data = result as? Data else { return "" }
         return String(data: data, encoding: .utf8) ?? ""
     }
     public static func save(_ secret: String, account: String = "gateway-token") throws {
@@ -51,7 +57,7 @@ public enum ReportService {
     /// Only IDs present in this snapshot become links. Unknown references remain explicitly unverified.
     public static func resolveReferences(_ text: String, meeting: Meeting) -> String {
         let entries = sources(meeting)
-        let links = Dictionary(uniqueKeysWithValues: entries.map { ($0.token, $0.link) })
+        let links = Dictionary(entries.map { ($0.token, $0.link) }, uniquingKeysWith: { first, _ in first })
         let regex = try! NSRegularExpression(pattern: #"\[\[([A-Za-z][A-Za-z0-9_-]*)\]\]"#)
         let compacted = ReportCitations.compact(text,meeting:meeting)
         var output = compacted

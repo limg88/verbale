@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking // URLSession lives here on Linux and Windows
+#endif
 import OSLog
 
 /// Limits apply to one invocation, including discovery, requests and retry waits.
@@ -103,7 +106,7 @@ final class ReportRun {
             let result = try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
                 group.addTask { try await session.data(for: boundedRequest) }
                 group.addTask {
-                    try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    try await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
                     throw ReportServiceError(kind: timeoutKind, status: 0, retryAfter: nil)
                 }
                 defer { group.cancelAll() }

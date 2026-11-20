@@ -46,7 +46,7 @@ extension VoiceAnalysisEngine {
         let diarizer = try NativeContext(library: library, model: diarization)
         let speaker = try NativeContext(library: library, model: voice), encoder = try encoder(speaker, expectedHash: voiceHash)
         var linker = SpeakerWindowLinker(), proposed = meeting.segments
-        var originalIDs = Dictionary(uniqueKeysWithValues: meeting.segments.map { ($0.id,$0.id) })
+        var originalIDs = Dictionary(meeting.segments.map { ($0.id,$0.id) }, uniquingKeysWith: { first, _ in first })
         var pieceGroups: [UUID:UUID] = [:], warnings: [String] = [], shortWindows = 0, failedSamples = 0, saturatedWindows = 0
         let windows = Int(ceil(meeting.duration / settings.coreDuration))
         for source in meeting.sources {

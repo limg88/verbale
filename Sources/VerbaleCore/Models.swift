@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking // URLSession lives here on Linux and Windows
+#endif
 import CryptoKit
 
 public struct ModelSpec: Codable, Identifiable, Sendable {
@@ -24,9 +27,15 @@ public actor ModelManager {
         guard let spec = catalog.first(where: { $0.id == id }) else { throw VerbaleError.message("Modello sconosciuto") }
         let file = path(id)
         guard FileManager.default.fileExists(atPath: file.path) else { throw VerbaleError.message("Installa il modello \(spec.filename) nella sezione Modelli.") }
-        guard try Self.digest(file) == spec.sha256 else { throw VerbaleError.message("Digest non valido per \(spec.filename). Importa o scarica nuovamente il modello.") }
+        // Hashing a ~1 GB model on every job is slow: reuse the verdict while the file is unchanged on disk.
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        let stamp = "\(attributes[.systemFileNumber] ?? 0)-\(attributes[.size] ?? 0)-\((attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)"
+        if verifiedStamps[id] == stamp { return file }
+        guard try Self.digest(file) == spec.sha256 else { verifiedStamps[id] = nil; throw VerbaleError.message("Digest non valido per \(spec.filename). Importa o scarica nuovamente il modello.") }
+        verifiedStamps[id] = stamp
         return file
     }
+    private var verifiedStamps: [String: String] = [:]
     public func install(_ id: String, from source: URL? = nil) async throws {
         guard let spec = catalog.first(where: { $0.id == id }) else { throw VerbaleError.message("Modello sconosciuto") }
         let temporary = directory.appendingPathComponent("\(UUID().uuidString).partial")

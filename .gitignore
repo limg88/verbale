@@ -10,3 +10,6 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# Local reverse-engineering scratch material (third-party binaries)
+analysis-comu/

@@ -41,7 +41,7 @@ struct TranscriptRefinementView:View {
                         if proposals.isEmpty { Text("Nessuna proposta in questa selezione.").foregroundStyle(.secondary).padding() }
                         ForEach(proposals) { proposal in
                             HStack(alignment:.top,spacing:10) {
-                                Toggle("",isOn:Binding(get:{state.selected.contains(proposal.id)},set:{if $0 {state.selected.insert(proposal.id)} else {state.selected.remove(proposal.id)}})).toggleStyle(.checkbox).labelsHidden().disabled(model.busy)
+                                Toggle("",isOn:Binding(get:{state.selected.contains(proposal.id)},set:{if $0 {state.selected.insert(proposal.id)} else {state.selected.remove(proposal.id)}})).toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Applica questa proposta").disabled(model.busy)
                                 VStack(alignment:.leading,spacing:6) {
                                     HStack {
                                         Text(timecode(proposal.start)+" · "+proposal.source.label).font(.caption).foregroundStyle(.secondary)
@@ -62,7 +62,7 @@ struct TranscriptRefinementView:View {
                     Button("Applica selezionate") { let selected = state.selected;Task { if await model.applyRefinement(selected) { state.selected = [] } } }.buttonStyle(.borderedProminent).disabled(model.busy || state.selected.isEmpty)
                 }
             } else { Spacer();Text("La trascrizione attuale resta disponibile durante il confronto.").foregroundStyle(.secondary);Spacer() }
-            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            if let error = model.error { Text(error).font(.caption).foregroundStyle(Palette.danger).textSelection(.enabled) }
         }.padding(24).frame(width:800,height:600).background(Color(nsColor:.windowBackgroundColor)).interactiveDismissDisabled(model.busy).onDisappear { model.stopVoicePlayback() }
     }
 }

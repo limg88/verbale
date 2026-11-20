@@ -64,7 +64,7 @@ struct VoiceEnrollmentView: View {
             Toggle("Riconosci i profili salvati al termine delle prossime registrazioni", isOn: $draft.automatic).toggleStyle(.checkbox)
             Text("Il profilo resta su questo Mac. Si salvano caratteristiche della voce, senza copiare l’audio nel profilo. Il riconoscimento può sbagliare e non aggiorna i profili automaticamente.").font(.caption).foregroundStyle(.secondary)
             if model.voiceBusy { HStack { ProgressView().controlSize(.small); Text(model.voiceProgress).font(.callout); Spacer(); Button("Annulla analisi") { model.cancelVoiceAnalysis() } } }
-            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            if let error = model.error { Text(error).font(.caption).foregroundStyle(Palette.danger).textSelection(.enabled) }
             HStack {
                 Text("\(draft.selected.count) di 6 campioni selezionati").font(.caption).foregroundStyle(.secondary)
                 Spacer()
@@ -93,7 +93,7 @@ struct VoiceProfilesSettings: View {
                 }
             }
             if model.voiceStore == nil {
-                Text("Archivio profili non disponibile. Consulta il messaggio di errore prima di creare nuovi profili.").foregroundStyle(.red)
+                Text("Archivio profili non disponibile. Consulta il messaggio di errore prima di creare nuovi profili.").foregroundStyle(Palette.danger)
             } else if model.voiceProfiles.isEmpty {
                 ContentUnavailableView("Nessuna voce salvata", systemImage: "person.wave.2", description: Text("Apri una riunione con audio conservato e scegli «Ricorda questa voce» dal menu di un passaggio della trascrizione."))
                     .frame(maxWidth: .infinity).padding(.vertical, 24)
@@ -121,9 +121,9 @@ private struct VoiceProfileRow: View {
                     TextField("Nome", text: $draft.name).textFieldStyle(.roundedBorder)
                     Button("Rinomina") { model.updateVoiceProfile(profile.id, name: draft.name) }.disabled(draft.name == profile.name)
                     Toggle("Attivo", isOn: Binding(get: { profile.enabled }, set: { model.updateVoiceProfile(profile.id, enabled: $0) })).toggleStyle(.checkbox)
-                    Button(role: .destructive) { model.updateVoiceProfile(profile.id, remove: true) } label: { Image(systemName: "trash") }.help("Elimina profilo")
+                    Button(role: .destructive) { model.updateVoiceProfile(profile.id, remove: true) } label: { Image(systemName: "trash") }.help("Elimina profilo").accessibilityLabel("Elimina profilo \(profile.name)")
                 }
-                if profile.needsMatchConfirmation { Label("Campioni variabili per il modello · riconoscimenti da confermare", systemImage: "person.crop.circle.badge.questionmark").font(.caption).foregroundStyle(.orange) }
+                if profile.needsMatchConfirmation { Label("Campioni variabili per il modello · riconoscimenti da confermare", systemImage: "person.crop.circle.badge.questionmark").font(.caption).foregroundStyle(Palette.warning) }
                 Text("\(profile.samples.count) campioni · creato il \(profile.created.formatted(date: .abbreviated, time: .omitted)) · modello legato al profilo").font(.caption).foregroundStyle(.secondary)
             }.disabled(model.sessionLocked)
         }

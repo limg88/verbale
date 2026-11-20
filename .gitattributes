@@ -1,0 +1,10 @@
+# Keep LF in the working tree on every platform: Git for Windows defaults to
+# core.autocrlf=true, and CRLF breaks sh scripts and shebang lines.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.png binary
+*.icns binary
+*.caf binary
+*.wav binary
+*.gguf binary

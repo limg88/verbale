@@ -38,7 +38,7 @@ struct RecordingWidget: View {
                     }
                 } label: { Label("\((model.recording ?? model.current)?.markers.count ?? 0)", systemImage: "flag") }
                     .menuStyle(.borderlessButton).fixedSize().disabled(!model.isRecording || model.busy)
-                    .help("Segna momento · \((model.recording ?? model.current)?.markers.count ?? 0) marcatori")
+                    .help("Segna momento · \((model.recording ?? model.current)?.markers.count ?? 0) marcatori").accessibilityLabel("Segna momento · \((model.recording ?? model.current)?.markers.count ?? 0) marcatori")
                 Button { Task { await model.screenshot() } } label: { Image(systemName: "camera") }.disabled(!model.isRecording).help("Screenshot").accessibilityLabel("Screenshot")
             }
             Button {
@@ -48,7 +48,7 @@ struct RecordingWidget: View {
                     .font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity).padding(.vertical, 5)
             }.buttonStyle(.borderedProminent).tint(model.isRecording ? .red : Palette.accent).disabled(actionDisabled)
             if let error = model.captureWarning ?? model.exportError ?? model.error {
-                Button { model.showMainWindow() } label: { Label(error, systemImage: "exclamationmark.circle").font(.caption).lineLimit(1) }.buttonStyle(.plain).foregroundStyle(.orange)
+                Button { model.showMainWindow() } label: { Label(error, systemImage: "exclamationmark.circle").font(.caption).lineLimit(1) }.buttonStyle(.plain).foregroundStyle(Palette.warning)
             } else if !model.isRecording && !model.readyToRecord && !model.busy && !model.working {
                 Button("Completa la preparazione nella finestra principale →") { model.showMainWindow() }.font(.system(size: 10)).buttonStyle(.plain).foregroundStyle(.secondary)
             } else {

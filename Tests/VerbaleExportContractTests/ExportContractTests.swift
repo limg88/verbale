@@ -217,7 +217,9 @@ private let requiredFiles: Set<String> = [
 
     let optional: Set<String> = [
         "report.md", "echo-duplicates.json", "transcript-boundaries.json", "transcription-refinement.json",
-        screenshot.filename, microphone.filename, cleaned, system.filename
+        screenshot.filename, microphone.filename, cleaned, system.filename,
+        // One playable file per recorded source, added once the recording is over.
+        "audio/microfono.wav", "audio/sistema.wav"
     ]
     let paths = try files.subpathsOfDirectory(atPath: output.path)
     let exportedFiles = Set(paths).subtracting(["audio", "screenshots"])

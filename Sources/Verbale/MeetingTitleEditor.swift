@@ -16,7 +16,7 @@ struct MeetingTitleEditor: View {
             Text("Modifica titolo della riunione").font(.headline)
             TextField("Titolo",text:$draft.value).textFieldStyle(.roundedBorder).focused($focused).onSubmit { save() }
             Text("Il titolo viene aggiornato nell’archivio e nei file di testo. I file rimangono nella cartella già scelta.").font(.caption).foregroundStyle(.secondary)
-            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red) }
+            if let error = model.error { Text(error).font(.caption).foregroundStyle(Palette.danger) }
             HStack {
                 if model.archiveBusy { ProgressView().controlSize(.small) }
                 Spacer()

@@ -33,10 +33,10 @@ public actor TranscriptionEngine {
     public static var defaultLibrary: URL {
         if let path = ProcessInfo.processInfo.environment["VERBALE_LIBRARY"] { return URL(fileURLWithPath: path) }
         if let folder = Bundle.main.privateFrameworksURL {
-            let library = folder.appendingPathComponent("libparakeet.dylib")
+            let library = folder.appendingPathComponent(NativeLibrary.filename("parakeet"))
             if FileManager.default.fileExists(atPath: library.path) { return library }
         }
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/parakeet/libparakeet.dylib")
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/parakeet").appendingPathComponent(NativeLibrary.filename("parakeet"))
     }
     public func load(asr: URL, vad: URL, diarization: URL? = nil, library: URL = defaultLibrary) throws {
         self.asr = nil; self.vad = nil; self.diarizer = nil
@@ -77,7 +77,7 @@ public actor TranscriptionEngine {
         return output
     }
     public func diarize(samples: [Float], segments: [Segment], offset: Double = 0) throws -> DiarizationResult {
-        guard let diarizer else { return DiarizationResult(segments: segments, replacements: Dictionary(uniqueKeysWithValues: segments.map { ($0.id, [$0.id]) })) }
+        guard let diarizer else { return DiarizationResult(segments: segments, replacements: Dictionary(segments.map { ($0.id, [$0.id]) }, uniquingKeysWith: { first, _ in first })) }
         let ranges = try JSONDecoder().decode(Regions.self, from: diarizer.json(samples, operation: 2)).segments
         return SpeakerDiarization.split(segments, regions: ranges.map { SpeakerRegion(start: $0.start, end: $0.end, speaker: $0.speaker) }, offset: offset)
     }

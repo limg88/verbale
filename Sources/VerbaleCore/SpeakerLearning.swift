@@ -193,7 +193,7 @@ extension VoiceAnalysisEngine {
         }
         var proposedMeeting = meeting, proposedAudit = audit
         try proposedAudit.retractAutomatic(in:&proposedMeeting)
-        let currentByID = Dictionary(uniqueKeysWithValues:proposedMeeting.segments.map { ($0.id,$0) })
+        let currentByID = Dictionary(proposedMeeting.segments.map { ($0.id,$0) }, uniquingKeysWith: { first, _ in first })
         // Old audit versions only recorded explicit confirmations in `applied`; safely migrate matching manual corrections.
         for piece in proposedAudit.pieces where proposedAudit.applied.contains(piece.id) && proposedAudit.manualEvidence[piece.id.uuidString] == nil {
             if let current = currentByID[piece.id], meeting.corrections.contains(where: { $0.segmentID == piece.id && $0.previousSpeakerID != $0.speakerID }) {

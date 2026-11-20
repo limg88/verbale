@@ -45,6 +45,8 @@ public final class SessionStore {
     public init(root: URL? = nil) throws {
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Verbale/Sessions", isDirectory: true)
         try FileManager.default.createDirectory(at: self.root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        // createDirectory leaves an existing folder's mode untouched; recordings must stay private.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: self.root.path)
     }
     public func workspace(_ id: UUID) -> URL { root.appendingPathComponent(id.uuidString, isDirectory: true) }
     public func publishExportDestination(_ destination: URL?) throws {
@@ -70,9 +72,22 @@ public final class SessionStore {
         try JSONCoding.encoder().encode(meeting).write(to: path.appendingPathComponent("meeting.json"), options: .atomic)
     }
     public func list() throws -> [Meeting] {
-        try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).compactMap {
-            try? JSONCoding.decoder().decode(Meeting.self, from: Data(contentsOf: $0.appendingPathComponent("meeting.json")))
+        try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).compactMap { folder -> Meeting? in
+            let manifest = folder.appendingPathComponent("meeting.json")
+            guard FileManager.default.fileExists(atPath: manifest.path) else { return nil }
+            do { return try JSONCoding.decoder().decode(Meeting.self, from: Data(contentsOf: manifest)) }
+            catch { CoreLog.warning("Session \(folder.lastPathComponent) skipped: manifest not readable (\(type(of: error)))"); return nil }
         }.sorted { $0.started > $1.started }
+    }
+    /// Session folders whose manifest exists but cannot be decoded. `list()` skips them, so the
+    /// caller must tell the user: the recording is still on disk even though it is not shown.
+    public func unreadableSessions() -> [URL] {
+        let folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        return folders.filter { folder in
+            let manifest = folder.appendingPathComponent("meeting.json")
+            guard FileManager.default.fileExists(atPath: manifest.path) else { return false }
+            return (try? JSONCoding.decoder().decode(Meeting.self, from: Data(contentsOf: manifest))) == nil
+        }
     }
     public func read(_ id: UUID) throws -> Meeting {
         try JSONCoding.decoder().decode(Meeting.self, from: Data(contentsOf: workspace(id).appendingPathComponent("meeting.json")))
@@ -91,6 +106,7 @@ public final class SessionStore {
         if let data = try? Data(contentsOf: path), let text = String(data: data, encoding: .utf8) {
             for row in text.split(separator: "\n") {
                 guard let bytes = row.data(using: .utf8), let chunk = try? JSONDecoder().decode(AudioChunk.self, from: bytes),
+                      !chunk.filename.hasPrefix("/"), !chunk.filename.split(separator: "/").contains(".."),
                       FileManager.default.fileExists(atPath: workspace(meeting.id).appendingPathComponent(chunk.filename).path),
                       !meeting.chunks.contains(where: { $0.id == chunk.id }) else { continue }
                 meeting.chunks.append(chunk)
@@ -178,6 +194,14 @@ public final class SessionStore {
             for chunk in meeting.chunks {
                 try copyArtifact(chunk.filename, meeting: meeting, target: target)
                 if let cleaned = chunk.cleanedFilename { try copyArtifact(cleaned, meeting: meeting, target: target) }
+            }
+        }
+        // Once the recording is over, add a playable file per source. It is a convenience copy:
+        // a failure here must not fail the export of the durable artifacts.
+        if meeting.keepAudio && !reuseArtifacts && meeting.state != .recording {
+            for source in meeting.sources {
+                do { try PlayableAudio.write(meeting.chunks, source: source, folder: target) }
+                catch { CoreLog.warning("Playable audio for \(source.rawValue) not written (\(type(of: error)))") }
             }
         }
         meeting.exportedAt = Date()

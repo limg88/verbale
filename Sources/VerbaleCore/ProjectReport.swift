@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking // URLSession lives here on Linux and Windows
+#endif
 import CryptoKit
 
 /// Operational reports use the model for evidence and one short overview; all

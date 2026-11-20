@@ -40,8 +40,8 @@ public actor EchoCancellation {
     private let path: URL
     public static var defaultLibrary: URL {
         if let path = ProcessInfo.processInfo.environment["VERBALE_AEC_LIBRARY"] { return URL(fileURLWithPath: path) }
-        if Bundle.main.bundleURL.pathExtension == "app", let folder = Bundle.main.privateFrameworksURL { return folder.appendingPathComponent("libverbale_aec.dylib") }
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/echo/webrtc/libverbale_aec.dylib")
+        if Bundle.main.bundleURL.pathExtension == "app", let folder = Bundle.main.privateFrameworksURL { return folder.appendingPathComponent(NativeLibrary.filename("verbale_aec")) }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/echo/webrtc").appendingPathComponent(NativeLibrary.filename("verbale_aec"))
     }
     public init(library: URL = defaultLibrary) { self.path = library }
     deinit { if let library { ve_close(library) } }

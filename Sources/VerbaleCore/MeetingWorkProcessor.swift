@@ -11,8 +11,11 @@ public actor MeetingWorkDisk {
     public func export(_ meeting:Meeting) throws -> Meeting { try store.export(meeting) }
     public func exportReview(_ meeting:Meeting) throws -> Meeting { try store.export(meeting,documentsOnly:true) }
     public func commit(_ value:Meeting,expected:Meeting,export:Bool) throws -> Meeting {
-        let latest=try store.read(value.id)
-        guard try JSONCoding.encoder().encode(latest) == JSONCoding.encoder().encode(expected) else { throw VerbaleError.message("La riunione è cambiata durante l’elaborazione. I dati più recenti sono stati conservati.") }
+        // The manifest is written with this same deterministic encoder, so identical bytes prove it is
+        // unchanged without decoding and re-encoding the whole meeting for every committed chunk.
+        let wanted=try JSONCoding.encoder().encode(expected)
+        let onDisk=try? Data(contentsOf:store.workspace(value.id).appendingPathComponent("meeting.json"))
+        guard try onDisk == wanted || JSONCoding.encoder().encode(store.read(value.id)) == wanted else { throw VerbaleError.message("La riunione è cambiata durante l’elaborazione. I dati più recenti sono stati conservati.") }
         try store.save(value)
         return export ? try store.export(value):value
     }

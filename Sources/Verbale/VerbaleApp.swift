@@ -44,6 +44,8 @@ import VerbaleCore
                 Button(model.isRecording ? "Termina riunione" : "Avvia riunione") {
                     Task { if model.isRecording { await model.stop() } else { await model.start() } }
                 }.keyboardShortcut("r", modifiers: [.command, .shift]).disabled(model.busy || model.reportBusy || (!model.isRecording && (model.working || model.voiceEnrollment != nil || model.auditReviewVisible || model.refinementVisible)))
+                Button("Nuova riunione") { model.showMainWindow(); model.newMeeting() }.keyboardShortcut("n")
+                Button("Cerca in archivio") { model.showMainWindow(); if !model.navigationLocked && !model.isRecording { model.tab = "archive" } }.keyboardShortcut("f")
                 Button("Mostra widget") { model.showWidget() }.keyboardShortcut("m", modifiers: [.command, .shift])
                 Button("Screenshot della riunione") { Task { await model.screenshot() } }.keyboardShortcut("2", modifiers: [.command, .shift]).disabled(!model.isRecording)
             }
@@ -145,6 +147,12 @@ import VerbaleCore
                 let meterObserver = model.audioLevels.objectWillChange.sink { meterChanges += 1 }
                 for i in 0..<1000 { model.levels[.system] = Float(i % 100)/100 }
                 checks["audio levels update meters without invalidating the application"] = appChanges == 0 && meterChanges == 1000
+                let savedStatus = model.status, savedTeams = model.teamsStatus
+                for _ in 0..<100 { model.status = savedStatus; model.teamsStatus = savedTeams }
+                let repeated = appChanges
+                model.status = savedStatus + " "; model.teamsStatus = savedTeams + " "
+                checks["repeated status text does not invalidate the application"] = repeated == 0 && appChanges == 2
+                model.status = savedStatus; model.teamsStatus = savedTeams
                 appObserver.cancel(); meterObserver.cancel(); model.levels = [:]
                 let nameDraft = SpeakerNameDraft("Anna")
                 let untouched = try Data(contentsOf:model.store.workspace(meeting.id).appendingPathComponent("meeting.json"))
@@ -678,10 +686,20 @@ import VerbaleCore
         } catch { checks["voice UI checks complete"] = false; print("Voice UI check failed: \(error)") }
     }
 
+    /// Quitting stops and saves the recording; ask first so a stray ⌘Q cannot cut a meeting short.
+    private static func confirmQuitWhileRecording() -> Bool {
+        let alert = NSAlert(); alert.alertStyle = .warning
+        alert.messageText = "Registrazione in corso"
+        alert.informativeText = "Uscendo, la registrazione viene terminata e salvata. Vuoi terminarla e uscire da Verbale?"
+        alert.addButton(withTitle: "Termina e esci"); alert.addButton(withTitle: "Continua a registrare")
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn
+    }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if mayTerminate { return .terminateNow }
         if terminationPending { return .terminateCancel }
         if model.busy || model.working || model.reportBusy || model.archiveBusy { return .terminateCancel }
+        if model.isRecording && !Self.confirmQuitWhileRecording() { return .terminateCancel }
         terminationPending = true
         model.prepareToQuit()
         Task {

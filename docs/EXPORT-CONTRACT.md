@@ -33,6 +33,7 @@ Gli array sono presenti anche se vuoti. I documenti Markdown sono in UTF-8. I pe
 | `transcription-refinement.json` | Quando il file della revisione esiste nell’archivio interno. |
 | Screenshot (normalmente `screenshots/*.png`) | Per ciascuno screenshot, al percorso indicato da `screenshots[].filename` nel manifest e collegato da `transcript.md`. |
 | Blocchi audio originali e ripuliti (normalmente `audio/*.caf`) | Con il salvataggio audio attivo. I percorsi sono in `chunks[].filename` e, se valorizzato, `chunks[].cleanedFilename`. |
+| `audio/microfono.wav`, `audio/sistema.wav` | Con il salvataggio audio attivo e a registrazione conclusa, uno per sorgente registrata: copia riproducibile (PCM 16 bit, 16 kHz, mono) dell’intera sorgente, con i buchi resi come silenzio. Non sono elencati nel manifest; i blocchi restano la fonte per la rielaborazione. Se la scrittura fallisce l’esportazione prosegue senza. |
 
 Una riesportazione può lasciare nella cartella file facoltativi delle revisioni precedenti.
 

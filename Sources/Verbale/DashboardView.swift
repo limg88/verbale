@@ -1,9 +1,16 @@
 import SwiftUI
 import AppKit
+import Combine
 import VerbaleCore
 
 private final class DesktopNavigationState: ObservableObject {
     @Published var query = ""
+    /// The full-text archive search runs on this value, not on every keystroke.
+    @Published private(set) var search = ""
+    init() {
+        $query.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .debounce(for: .milliseconds(250), scheduler: RunLoop.main).removeDuplicates().assign(to: &$search)
+    }
 }
 struct DashboardView: View {
     @EnvironmentObject var model: AppModel
@@ -19,7 +26,7 @@ struct DashboardView: View {
         }
     }
     private var filteredMeetings: [Meeting] {
-        let text = viewState.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = viewState.search
         return model.meetings.filter { text.isEmpty || $0.title.localizedCaseInsensitiveContains(text) || $0.notes.localizedCaseInsensitiveContains(text) || $0.segments.contains { $0.text.localizedCaseInsensitiveContains(text) } }
     }
     var body: some View {
@@ -61,7 +68,13 @@ struct DashboardView: View {
         .sheet(isPresented: $model.auditReviewVisible) { SpeakerAuditView().environmentObject(model) }
         .sheet(item: $model.voiceEnrollment) { request in VoiceEnrollmentView(request: request).environmentObject(model) }
         .alert("Verbale", isPresented: Binding(get: { model.error != nil && !model.refinementVisible && model.titleEditing == nil && model.pendingRemoval == nil && !model.quietMode && model.voiceEnrollment == nil && !model.auditReviewVisible }, set: { if !$0 { model.error = nil } })) {
-            Button("OK") { model.error = nil }
+            if model.error?.contains("permesso Microfono") == true || model.error?.contains("autorizza il microfono") == true {
+                Button("Apri Impostazioni di Sistema") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") { NSWorkspace.shared.open(url) }
+                    model.error = nil
+                }
+            }
+            Button("OK", role: .cancel) { model.error = nil }
         } message: { Text(model.error ?? "") }
     }
     private var header: some View {
@@ -70,7 +83,7 @@ struct DashboardView: View {
                 HStack {
                     Text(title).font(.system(size:21,weight:.semibold)).lineLimit(1).help(title)
                     if model.tab == "session", let meeting = model.current, !model.viewingRecording {
-                        Button { model.editMeetingTitle(meeting) } label: { Image(systemName:"pencil") }.buttonStyle(.plain).help("Modifica titolo").disabled(!model.canManageMeeting(meeting))
+                        Button { model.editMeetingTitle(meeting) } label: { Image(systemName:"pencil").iconHitTarget() }.buttonStyle(.plain).help("Modifica titolo").accessibilityLabel("Modifica titolo").disabled(!model.canManageMeeting(meeting))
                     }
                 }
                 if model.tab == "session", let meeting = model.current {
@@ -92,7 +105,7 @@ struct DashboardView: View {
                     .controlSize(.large).disabled(model.navigationLocked)
             }
             if model.tab == "session", let meeting = model.current, !model.viewingRecording {
-                Button { model.reveal() } label: { Image(systemName: "folder") }.help("Apri cartella della riunione").disabled(!meeting.exported)
+                Button { model.reveal() } label: { Image(systemName: "folder") }.help("Apri cartella della riunione").accessibilityLabel("Apri cartella della riunione").disabled(!meeting.exported)
                 Button(role:.destructive) { model.delete(meeting) } label: { Image(systemName:"trash") }
                     .help(model.workLocked(meeting.id) ? "Sospendi le attività della riunione prima di rimuoverla.":"Rimuovi riunione…").accessibilityLabel("Rimuovi riunione").disabled(!model.canManageMeeting(meeting))
             }
@@ -141,14 +154,14 @@ struct DashboardView: View {
                 Spacer()
                 if id == "session" && model.isRecording { Circle().fill(.red).frame(width: 7, height: 7) }
             }.font(.system(size: 13, weight: model.tab == id ? .semibold : .regular)).padding(10)
-                .foregroundStyle(model.tab == id ? Palette.accent : .primary)
+                .foregroundStyle(model.tab == id ? Palette.accentText : Color.primary)
                 .background(model.tab == id ? Palette.accent.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 9))
-        }.buttonStyle(.plain)
+        }.buttonStyle(.plain).accessibilityAddTraits(model.tab == id ? .isSelected : [])
     }
     @ViewBuilder private var session: some View {
         VStack(alignment: .leading, spacing: 16) {
             if let error = model.exportError {
-                HStack { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange); Spacer(); Button("Riprova") { model.exportCurrent() }.disabled(model.sessionLocked); Button("Cambia cartella") { model.exportElsewhere() }.disabled(model.sessionLocked) }.font(.callout)
+                HStack { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.warning); Spacer(); Button("Riprova") { model.exportCurrent() }.disabled(model.sessionLocked); Button("Cambia cartella") { model.exportElsewhere() }.disabled(model.sessionLocked) }.font(.callout)
             }
             if model.current == nil {
                 if !prepared {
@@ -221,7 +234,7 @@ struct DashboardView: View {
                     Spacer()
                     Picker("Ascolto", selection: $model.listeningMode) { ForEach(ListeningMode.allCases) { Text($0.label).tag($0) } }.frame(maxWidth: 300)
                 }.disabled(model.sessionLocked)
-                if !model.microphone && !model.system { Label("Attiva almeno una sorgente audio.", systemImage: "exclamationmark.circle").foregroundStyle(.orange).font(.callout) }
+                if !model.microphone && !model.system { Label("Attiva almeno una sorgente audio.", systemImage: "exclamationmark.circle").foregroundStyle(Palette.warning).font(.callout) }
                 HStack(spacing: 10) {
                     Image(systemName: "folder").foregroundStyle(.secondary)
                     Text(model.destination?.path ?? "Scegli dove salvare le riunioni").font(.callout).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
@@ -239,18 +252,19 @@ struct DashboardView: View {
         }
     }
     private var archive: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let results = filteredMeetings, searching = !viewState.search.isEmpty
+        return VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Cerca in titoli, trascrizioni e note", text: $viewState.query).textFieldStyle(.plain)
-                if !viewState.query.isEmpty { Button { viewState.query = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).help("Cancella ricerca") }
+                if !viewState.query.isEmpty { Button { viewState.query = "" } label: { Image(systemName: "xmark.circle.fill").iconHitTarget() }.buttonStyle(.plain).help("Cancella ricerca").accessibilityLabel("Cancella ricerca") }
             }.padding(12).background(.background, in: RoundedRectangle(cornerRadius: 10))
-            Text("\(filteredMeetings.count) riunioni").font(.callout).foregroundStyle(.secondary)
-            if filteredMeetings.isEmpty {
-                ContentUnavailableView(viewState.query.isEmpty ? "Nessuna riunione" : "Nessun risultato", systemImage: viewState.query.isEmpty ? "tray" : "magnifyingglass", description: Text(viewState.query.isEmpty ? "Le registrazioni salvate compariranno qui." : "Prova un altro titolo o una parola della conversazione."))
+            Text("\(results.count) riunioni").font(.callout).foregroundStyle(.secondary)
+            if results.isEmpty {
+                ContentUnavailableView(!searching ? "Nessuna riunione" : "Nessun risultato", systemImage: !searching ? "tray" : "magnifyingglass", description: Text(!searching ? "Le registrazioni salvate compariranno qui." : "Prova un altro titolo o una parola della conversazione."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(filteredMeetings) { meeting in
+                List(results) { meeting in
                     HStack {
                     Button { model.open(meeting) } label: {
                         HStack(spacing: 14) {
@@ -265,8 +279,8 @@ struct DashboardView: View {
                             Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                         }.padding(.vertical, 8).contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(model.navigationLocked)
-                        Button { model.editMeetingTitle(meeting) } label: { Image(systemName:"pencil") }.buttonStyle(.borderless).help("Modifica titolo").disabled(!model.canManageMeeting(meeting))
-                    Button(role:.destructive) { model.delete(meeting) } label: { Image(systemName:"trash") }.buttonStyle(.borderless).help("Rimuovi dall’archivio…").disabled(!model.canManageMeeting(meeting))
+                        Button { model.editMeetingTitle(meeting) } label: { Image(systemName:"pencil") }.buttonStyle(.borderless).help("Modifica titolo").accessibilityLabel("Modifica titolo di \(meeting.title)").disabled(!model.canManageMeeting(meeting))
+                    Button(role:.destructive) { model.delete(meeting) } label: { Image(systemName:"trash") }.buttonStyle(.borderless).help("Rimuovi dall’archivio…").accessibilityLabel("Rimuovi \(meeting.title) dall’archivio").disabled(!model.canManageMeeting(meeting))
                     }
                     .contextMenu {
                         Button("Apri riunione") { model.open(meeting) }.disabled(model.navigationLocked)

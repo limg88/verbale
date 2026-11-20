@@ -1,11 +1,29 @@
 import SwiftUI
+import AppKit
 import VerbaleCore
 
 enum Palette {
     static let ink = Color.primary
     static let accent = Color(red: 0.40, green: 0.34, blue: 0.94)
     static let mint = Color(red: 0.20, green: 0.72, blue: 0.63)
+    /// Text colours that keep at least 4.5:1 against the window background in both appearances
+    /// (system orange and red reach only about 2.2:1 and 3.5:1 on white).
+    static let warning = adaptive(light: (0.60, 0.36, 0.00), dark: (1.00, 0.62, 0.04))
+    static let danger = adaptive(light: (0.78, 0.11, 0.11), dark: (1.00, 0.45, 0.42))
+    /// Accent for small text: the brand accent is too dark on dark backgrounds.
+    static let accentText = adaptive(light: (0.40, 0.34, 0.94), dark: (0.62, 0.58, 1.00))
+    private static func adaptive(light: (Double, Double, Double), dark: (Double, Double, Double)) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let c = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: 1)
+        })
+    }
     static let hero = LinearGradient(colors: [Color(red: 0.26, green: 0.22, blue: 0.66), Color(red: 0.35, green: 0.33, blue: 0.83), Color(red: 0.23, green: 0.49, blue: 0.69)], startPoint: .topLeading, endPoint: .bottomTrailing)
+}
+
+extension View {
+    /// Gives a bare icon button a pointer target of at least 24×24 pt (WCAG 2.5.8).
+    func iconHitTarget() -> some View { frame(minWidth: 24, minHeight: 24).contentShape(Rectangle()) }
 }
 
 struct SoundWaveMark: Shape {

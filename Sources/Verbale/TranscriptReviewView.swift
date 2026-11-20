@@ -45,12 +45,12 @@ struct TranscriptReviewView: View {
                     Button("Riascolta e confronta…") { model.showRefinement() }.disabled(model.sessionLocked || (!meeting.keepAudio && !meeting.keepRecovery)).help("Prepara proposte con più contesto, senza cambiare la trascrizione")
                 }
                 if model.viewingRecording && !(model.viewingRecording && model.transcriptionDeferred) { Toggle("Segui il parlato", isOn: $state.followLive).toggleStyle(.checkbox).font(.callout) }
-                if model.savingVoiceMeetings.contains(meeting.id) { ProgressView().controlSize(.small).help("Salvataggio delle conferme vocali…") }
+                if model.savingVoiceMeetings.contains(meeting.id) { ProgressView().controlSize(.small).help("Salvataggio delle conferme vocali…").accessibilityLabel("Salvataggio delle conferme vocali") }
                 Label(model.viewingRecording && !meeting.chunks.isEmpty ? "Audio salvato sul Mac" : meeting.exported ? "Salvata" : "Da salvare", systemImage: (model.viewingRecording && !meeting.chunks.isEmpty) || meeting.exported ? "checkmark.circle" : "clock").font(.caption).foregroundStyle(.secondary)
             }
             if !model.viewingRecording {
                 ForEach(RecordingReadiness.missingSourceWarnings(meeting.sources,chunks:meeting.chunks,segments:meeting.segments),id:\.self) { warning in
-                    Label(warning,systemImage:"exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange)
+                    Label(warning,systemImage:"exclamationmark.triangle.fill").font(.callout).foregroundStyle(Palette.warning)
                 }
             }
             if let job=model.work(meeting.id,kind:.transcription),job.state.pending {
@@ -66,7 +66,7 @@ struct TranscriptReviewView: View {
             } else if meeting.state == .failed || meeting.state == .interrupted || model.work(meeting.id,kind:.transcription).map({[.failed,.cancelled].contains($0.state)}) == true {
                 Button("Riprendi trascrizione") { Task { await model.resume() } }.disabled(model.navigationLocked || model.work(meeting.id,kind:.report)?.state.pending == true)
             }
-            if let job=model.work(meeting.id,kind:.transcription),job.state == .failed { Text(job.error ?? "Trascrizione interrotta").font(.callout).foregroundStyle(.orange) }
+            if let job=model.work(meeting.id,kind:.transcription),job.state == .failed { Text(job.error ?? "Trascrizione interrotta").font(.callout).foregroundStyle(Palette.warning) }
             if meeting.segments.isEmpty {
                 ContentUnavailableView(queuedTitle ?? (model.waitingTranscriptionID == meeting.id ? "Attesa fine chiamata Teams" : (model.viewingRecording && model.transcriptionDeferred) ? "Audio in registrazione" : model.viewingRecording ? "In ascolto…" : meeting.state == .processing ? "Trascrizione in corso…" : "Trascrizione in attesa"), systemImage: "waveform", description: Text(queuedTitle != nil ? "Puoi consultare le altre riunioni. I risultati compariranno qui al termine dell’elaborazione." : model.waitingTranscriptionID == meeting.id ? "L’audio è salvato. La trascrizione ripartirà automaticamente quando Teams non segnalerà più la chiamata." : (model.viewingRecording && model.transcriptionDeferred) ? "La trascrizione inizierà al termine della registrazione, per ridurre i consumi durante la call." : model.viewingRecording ? "Il testo comparirà dopo i primi secondi di parlato." : meeting.state == .interrupted || meeting.state == .failed ? "L’audio è salvato. Dopo la call premi Riprendi trascrizione." : meeting.state == .processing ? "Sto elaborando l’audio salvato sul Mac." : "Nessun testo disponibile."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -82,7 +82,7 @@ struct TranscriptReviewView: View {
                                         let attribution = meeting.attribution(for:segment,match:presentation.matches[segment.id],learned:model.speakerAudit?.automaticAssignments?[segment.id.uuidString])
                                         HStack(spacing:6) {
                                             Button { if let id = segment.speakerID { model.focusSpeaker(id) } } label: {
-                                                Text(attribution.name).font(.system(size:12,weight:.semibold)).foregroundStyle(Palette.accent)
+                                                Text(attribution.name).font(.system(size:12,weight:.semibold)).foregroundStyle(Palette.accentText)
                                             }.buttonStyle(.plain).disabled(segment.speakerID == nil).help("Vai alla prima occorrenza di questo interlocutore")
                                             if attribution.state == .uncertain || attribution.state == .unidentified {
                                                 Menu {
@@ -92,7 +92,7 @@ struct TranscriptReviewView: View {
                                                         }
                                                     }
                                                     Button("Assegna o correggi nome…") { state.editing = segment }
-                                                } label: { Image(systemName:"questionmark.circle.fill").foregroundStyle(.orange) }
+                                                } label: { Image(systemName:"questionmark.circle.fill").foregroundStyle(Palette.warning) }
                                                 .menuStyle(.borderlessButton).fixedSize().disabled(model.sessionLocked).help(attribution.detail).accessibilityLabel("Identità da verificare: \(attribution.name)")
                                             } else if attribution.state == .recognized {
                                                 Image(systemName:"checkmark.circle").foregroundStyle(.secondary).help(attribution.detail).accessibilityLabel("Voce riconosciuta")
@@ -112,8 +112,8 @@ struct TranscriptReviewView: View {
                                             Button("Assegna nome da profilo…") { state.assigningProfile = segment }
                                         }
                                     } label: { Image(systemName: "person.crop.circle.badge.plus") }
-                                        .menuStyle(.borderlessButton).fixedSize().disabled(model.sessionLocked).help("Crea un profilo vocale dai passaggi registrati")
-                                    Button { state.editing = segment } label: { Image(systemName: "pencil") }
+                                        .menuStyle(.borderlessButton).fixedSize().disabled(model.sessionLocked).help("Crea un profilo vocale dai passaggi registrati").accessibilityLabel("Azioni sulla voce di questo passaggio")
+                                    Button { state.editing = segment } label: { Image(systemName: "pencil").iconHitTarget() }
                                         .buttonStyle(.plain).disabled(model.sessionLocked).help("Correggi testo o interlocutore")
                                         .accessibilityLabel("Correggi segmento a \(timecode(segment.start))")
                                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -187,7 +187,7 @@ private struct SegmentEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Correggi segmento · \(timecode(segment.start))").font(.headline)
-            TextEditor(text: $draft.text).font(.body).frame(height: 150).border(.secondary.opacity(0.25))
+            TextEditor(text: $draft.text).font(.body).frame(height: 150).accessibilityLabel("Testo del passaggio").border(.secondary.opacity(0.25))
             Picker("Interlocutore", selection: $draft.speaker) {
                 Text(segment.source.label).tag("")
                 ForEach(speakerIDs, id: \.self) { id in Text(meeting.speakers[id] ?? id).tag(id) }
@@ -211,7 +211,7 @@ private struct SegmentEditor: View {
                     }.frame(maxHeight: 140)
                 }
             }
-            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red) }
+            if let error = model.error { Text(error).font(.caption).foregroundStyle(Palette.danger) }
             HStack {
                 Spacer()
                 Button("Annulla") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -256,10 +256,10 @@ private struct SpeakerNameRow: View {
                         Button("Ricorda questa voce…") { model.beginVoiceEnrollment(segment,speakerGroupID:speakerID) }.disabled(!meeting.keepAudio && !meeting.keepRecovery)
                         Button("Assegna nome da profilo…") { assigningProfile = true }.disabled(model.voiceProfiles.isEmpty)
                     } label: { Image(systemName:"person.crop.circle.badge.plus") }
-                        .menuStyle(.borderlessButton).fixedSize().help("Profili vocali di questo interlocutore")
+                        .menuStyle(.borderlessButton).fixedSize().help("Profili vocali di questo interlocutore").accessibilityLabel("Profili vocali di questo interlocutore")
                         .sheet(isPresented:$assigningProfile) { VoiceProfileAssignmentView(meetingID:meetingID,segmentID:segment.id,speakerGroupID:speakerID).environmentObject(model) }
                 }
-                Button { draft.text = name; draft.editing = true; focused = true } label: { Image(systemName:"pencil") }.buttonStyle(.plain).help("Modifica il nome in tutti i passaggi di questa persona")
+                Button { draft.text = name; draft.editing = true; focused = true } label: { Image(systemName:"pencil").iconHitTarget() }.buttonStyle(.plain).help("Modifica il nome in tutti i passaggi di questa persona").accessibilityLabel("Modifica nome dell’interlocutore")
             }
         }.font(.callout).disabled(model.sessionLocked)
             .onChange(of:name) { _,value in if !draft.editing { draft.text = value } }

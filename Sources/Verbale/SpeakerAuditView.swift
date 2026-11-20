@@ -11,23 +11,39 @@ private final class SpeakerAuditDraft: ObservableObject {
     @Published var verified = false
     @Published var listened: Set<UUID> = []
 }
+/// Memoises values that hash or rebuild the whole meeting, for the duration of one render pass.
+private final class SpeakerAuditRenderCache {
+    var valid: Bool?
+    var triage: SpeakerAuditTriage??
+    func reset() { valid = nil; triage = nil }
+}
 struct SpeakerAuditView: View {
     @EnvironmentObject var model: AppModel
     @StateObject private var draft = SpeakerAuditDraft()
+    private let rendered = SpeakerAuditRenderCache()
     private var audit: SpeakerAudit? { model.speakerAudit }
     private var group: SpeakerAuditGroup? { audit?.groups.first { $0.id == draft.groupID } }
     private var pending: [SpeakerAuditPiece] { draft.groupID.flatMap { audit?.pending($0) } ?? [] }
     private var triage: SpeakerAuditTriage? {
-        guard let audit, let meeting = model.current else { return nil }
-        return SpeakerAuditTriage(audit: audit, meeting: meeting)
+        if let cached = rendered.triage { return cached }
+        let value: SpeakerAuditTriage?
+        if let audit, let meeting = model.current { value = SpeakerAuditTriage(audit: audit, meeting: meeting) } else { value = nil }
+        rendered.triage = .some(value); return value
     }
     private var currentCase: SpeakerAuditCase? { triage?.cases.first { $0.groupID == draft.groupID } }
     private func choose(_ id: UUID?) {
         model.stopVoicePlayback(); draft.groupID = id; draft.selected = []; draft.name = ""; draft.verified = false; draft.listened = []; draft.editing = false
     }
-    private var valid: Bool { guard let meeting = model.current else { return false }; return audit?.isCurrent(for: meeting) == true }
+    private var valid: Bool {
+        if let cached = rendered.valid { return cached }
+        let value: Bool
+        if let meeting = model.current { value = audit?.isCurrent(for: meeting) == true } else { value = false }
+        rendered.valid = value; return value
+    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        // Every model or draft change re-evaluates body, so the cache never outlives the state it was computed from.
+        rendered.reset()
+        return VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("Verifica altre voci").font(.title2).fontWeight(.semibold)
                 Spacer()
@@ -39,7 +55,7 @@ struct SpeakerAuditView: View {
             if model.learningBusy {
                 HStack { ProgressView().controlSize(.small); Text(model.voiceProgress).font(.caption); Spacer(); Button("Annulla rivalutazione") { model.cancelVoiceAnalysis() } }
             } else if !model.learningSummary.isEmpty { Text(model.learningSummary).font(.caption).foregroundStyle(.secondary) }
-            if !valid { Label("I contenuti sono cambiati: chiudi e ripeti la ricerca prima di applicare le proposte.", systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.orange) }
+            if !valid { Label("I contenuti sono cambiati: chiudi e ripeti la ricerca prima di applicare le proposte.", systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(Palette.warning) }
             if let audit {
                 DisclosureGroup("Avvisi dell’analisi · \(audit.warnings.count)") {
                     ScrollView { VStack(alignment: .leading, spacing: 6) { ForEach(audit.warnings, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) } } }.frame(height: 80)
@@ -70,14 +86,14 @@ struct SpeakerAuditView: View {
                     else { ContentUnavailableView("Nessun altro caso prioritario", systemImage: "checkmark.circle", description: Text("Questo non certifica tutti i nomi. I frammenti incerti restano disponibili in Analisi completa.")) .frame(maxWidth: .infinity, maxHeight: .infinity) }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity).disabled(model.learningBusy)
             }
-            if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).lineLimit(3) }
+            if let error = model.error { Text(error).font(.caption).foregroundStyle(Palette.danger).lineLimit(3) }
             HStack {
                 Button("Rivaluta con le conferme") { model.startSpeakerLearning() }.disabled(model.busy || !valid)
                 Text("Audio e analisi restano sul Mac").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Chiudi") { model.stopVoicePlayback(); model.auditReviewVisible = false }.keyboardShortcut(.cancelAction) }
         }.padding(22).frame(width: 890, height: 650).background(Color(nsColor: .windowBackgroundColor))
             .onAppear { if draft.groupID == nil { choose(triage?.cases.first?.groupID) } }
-            .onChange(of: audit?.reviewedBuckets?.count) { _, _ in if !draft.fullAnalysis { choose(triage?.cases.first?.groupID) } }
-            .onChange(of: model.learningBusy) { _, active in if !active && !draft.fullAnalysis { choose(triage?.cases.first?.groupID) } }
+            .onChange(of: audit?.reviewedBuckets?.count) { _, _ in rendered.reset(); if !draft.fullAnalysis { choose(triage?.cases.first?.groupID) } }
+            .onChange(of: model.learningBusy) { _, active in rendered.reset(); if !active && !draft.fullAnalysis { choose(triage?.cases.first?.groupID) } }
             .onChange(of: draft.name) { _, _ in draft.verified = false }
             .onDisappear { model.stopVoicePlayback() }
     }
@@ -131,7 +147,7 @@ struct SpeakerAuditView: View {
                 Spacer()
                 if !draft.fullAnalysis { Button("Torna agli estratti") { choose(draft.returnCaseID ?? triage?.cases.first?.groupID) }.font(.caption) }
             }
-            if let caution = group.caution { Text(caution).font(.caption).foregroundStyle(.orange) }
+            if let caution = group.caution { Text(caution).font(.caption).foregroundStyle(Palette.warning) }
             if group.clips.isEmpty { Text("Nessun campione di almeno 3 secondi: verifica i passaggi nella registrazione originale.").font(.caption).foregroundStyle(.secondary) }
             ScrollView(.horizontal) {
                 HStack {
