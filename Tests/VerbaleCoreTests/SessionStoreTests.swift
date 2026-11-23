@@ -303,6 +303,16 @@ private final class ReportProtocol: URLProtocol {
 
 @main enum Checks {
     static func main() async {
+        if CommandLine.arguments.contains("--check-system-capture") {
+            do {
+                try await CaptureLifecycleChecks.systemCaptureHardware()
+                print("PASS system capture records synthetic audio before and after reopening the tap")
+            } catch {
+                print("FAIL system capture hardware: \(error)")
+                exit(1)
+            }
+            return
+        }
         if CommandLine.arguments.count == 5,CommandLine.arguments[1] == "--benchmark-engine" {
             do { try await PerformanceChecks.benchmarkEngine(asr:URL(fileURLWithPath:CommandLine.arguments[2]),vad:URL(fileURLWithPath:CommandLine.arguments[3]),audio:URL(fileURLWithPath:CommandLine.arguments[4])) }
             catch { print("FAIL engine benchmark: \(error)"); exit(1) }; return

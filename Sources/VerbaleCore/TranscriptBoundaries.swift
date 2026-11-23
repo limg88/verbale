@@ -15,6 +15,21 @@ public struct TranscriptBoundaryResult: Sendable {
     public var edits: [TranscriptBoundaryEdit]
 }
 public enum TranscriptBoundaries {
+    /// Use context from the same capture span. Padding a device outage with
+    /// silence could make the block after a long outage disappear from ASR.
+    public static func audioContext(_ chunks: [AudioChunk], at index: Int, warmupBlocks: Int) -> ClosedRange<Int> {
+        var lower = index
+        while lower > max(0, index - warmupBlocks) {
+            let previous = chunks[lower - 1]
+            guard chunks[lower].start - (previous.start + previous.duration) < 1 else { break }
+            lower -= 1
+        }
+        let current = chunks[index]
+        let upper = index + 1 < chunks.count && chunks[index + 1].start - (current.start + current.duration) < 1
+            ? index + 1 : index
+        return lower...upper
+    }
+
     /// Keep the same ownership rule for live recording, recovery and diagnostics.
     public static func owned(_ segments:[Segment],by chunk:AudioChunk) -> [Segment] {
         segments.compactMap { input in

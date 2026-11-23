@@ -64,8 +64,9 @@ public actor MeetingWorkProcessor {
                 await progress("Trascrizione \(meeting.chunks.filter(\.processed).count+1) di \(total) blocchi")
                 let siblings=meeting.chunks.filter{$0.source==chunk.source}.sorted{$0.start<$1.start}
                 let index=siblings.firstIndex{$0.id==chunk.id}!,aec=chunk.source == .microphone && meeting.usesEchoCancellation
-                let neighborhood=siblings[max(0,index-(aec ? 2:1))...min(index+1,siblings.count-1)]
-                let transcriptionOffset=siblings[max(0,index-1)].start
+                let context = TranscriptBoundaries.audioContext(siblings, at: index, warmupBlocks: aec ? 2 : 1)
+                let neighborhood = siblings[context]
+                let transcriptionOffset = siblings[max(context.lowerBound, index - 1)].start
                 var samples:[Float]=[],offset=neighborhood.first!.start
                 for item in neighborhood {
                     let position=Int((item.start-offset)*16000)

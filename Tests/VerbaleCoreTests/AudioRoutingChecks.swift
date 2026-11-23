@@ -55,6 +55,38 @@ enum AudioRoutingChecks {
                 let unavailable = AudioRouteSelection.migrated(saved:nil,legacyID:900,devices:[built])
                 try VoiceChecks.require(unavailable == "legacy-id:900","missing legacy device silently became auto")
             }),
+            ("automatic rebind waits for a stable route and ignores a muted Teams snapshot", {
+                var next = AudioRouteSnapshot(devices: [built, headset], defaultInput: 1, defaultOutput: 1, activeTeamsOutput: [2])
+                let initial = try AudioRouteSelection.resolve("automatic", input: false, snapshot: next)
+                var route = CaptureRouteTracker(current: initial, choice: "automatic", isInput: false)
+                next.activeTeamsOutput = []
+                try VoiceChecks.require(route.observe(next) == nil && route.observe(next) == nil, "mute fell back to the Mac")
+                next.activeTeamsOutput = [1]
+                try VoiceChecks.require(route.observe(next) == nil, "unconfirmed route applied")
+                guard let change = route.observe(next) else { throw VerbaleError.message("stable Teams route ignored") }
+                route.applied(change)
+                try VoiceChecks.require(route.current.device == built && route.warning(next) == nil, "updated route still disagrees with Teams")
+                try VoiceChecks.require(route.observe(next, stalled: true) == nil, "stall rebind did not wait for confirmation")
+                guard let recovery = route.observe(next, stalled: true) else { throw VerbaleError.message("active but stalled device not reopened") }
+                route.applied(recovery)
+                try VoiceChecks.require(route.observe(next, stalled: true) == nil && route.observe(next, stalled: true) == nil, "stall retry loops before receiving samples")
+                var unplugged = CaptureRouteTracker(current: initial, choice: "automatic", isInput: false)
+                next.devices = [built]; next.activeTeamsOutput = []
+                try VoiceChecks.require(unplugged.observe(next) == nil && unplugged.warning(next) != nil,
+                                        "missing output switched before confirmation or had no warning")
+                try VoiceChecks.require(unplugged.observe(next)?.device == built, "disconnected headset did not recover on macOS output")
+            }),
+            ("manual device warns on mismatch and reopens only the selected device", {
+                var next = AudioRouteSnapshot(devices: [built, headset], defaultInput: 1, defaultOutput: 1, activeTeamsOutput: [1])
+                let initial = try AudioRouteSelection.resolve(headset.choice, input: false, snapshot: next)
+                var route = CaptureRouteTracker(current: initial, choice: headset.choice, isInput: false)
+                try VoiceChecks.require(route.observe(next) == nil && route.warning(next) != nil, "manual device silently switched")
+                next.devices = [built]
+                try VoiceChecks.require(route.observe(next) == nil && route.warning(next) != nil, "manual disconnect was ignored")
+                next.devices = [built, headset]
+                try VoiceChecks.require(route.observe(next) == nil, "return was not debounced")
+                try VoiceChecks.require(route.observe(next)?.device == headset, "same device ID did not reopen on reconnect")
+            }),
             ("Teams identity and recorded device metadata", {
                 try VoiceChecks.require(AudioRouteSelection.isTeamsBundle("com.microsoft.teams2.helper") && AudioRouteSelection.isTeamsBundle("com.microsoft.teams"),"supported Teams helper excluded")
                 try VoiceChecks.require(!AudioRouteSelection.isTeamsBundle("com.microsoft.teams2fake") && !AudioRouteSelection.isTeamsBundle("org.teamspeak"),"unrelated process treated as call")

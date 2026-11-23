@@ -60,7 +60,8 @@ private final class CapturePermitSlot: @unchecked Sendable {
     private let lock = NSLock()
     private var current: CapturePermit?
     func install(_ permit: CapturePermit) { lock.lock(); current = permit; lock.unlock() }
-    func close() { lock.lock(); let permit = current; lock.unlock(); permit?.close() }
+    var active: CapturePermit? { lock.lock(); defer { lock.unlock() }; return current }
+    func close() { active?.close() }
 }
 
 /// Copies bounded audio buffers before returning to the realtime callback.
@@ -71,6 +72,7 @@ private final class ChunkSink: @unchecked Sendable {
     private let source: AudioSource
     private let folder: URL
     private let epoch: CaptureEpoch
+    private let minimumStart: Double
     private let permit: CapturePermit
     private let onChunk: (AudioChunk) -> Void
     private let onLevel: (Float) -> Void
@@ -83,12 +85,13 @@ private final class ChunkSink: @unchecked Sendable {
     private var lastMeterTime = -Double.infinity
     private var stopped = false
     private var failed = false
-    init(source: AudioSource, folder: URL, epoch: CaptureEpoch, permit: CapturePermit, onChunk: @escaping (AudioChunk) -> Void, onLevel: @escaping (Float) -> Void, onError: @escaping (String) -> Void) {
-        self.source = source; self.folder = folder; self.epoch = epoch; self.permit = permit; self.onChunk = onChunk; self.onLevel = onLevel; self.onError = onError
+    init(source: AudioSource, folder: URL, epoch: CaptureEpoch, minimumStart: Double, permit: CapturePermit, onChunk: @escaping (AudioChunk) -> Void, onLevel: @escaping (Float) -> Void, onError: @escaping (String) -> Void) {
+        self.source = source; self.folder = folder; self.epoch = epoch; self.minimumStart = minimumStart
+        self.permit = permit; self.onChunk = onChunk; self.onLevel = onLevel; self.onError = onError
         queue = DispatchQueue(label: "io.verbale.writer.\(source.rawValue)")
     }
     func receive(_ input: AVAudioPCMBuffer, hostTime: UInt64) {
-        guard permit.allowed else { return }
+        guard permit.allowed, hostTime != 0, input.frameLength > 0 else { return }
         let origin = epoch.origin
         guard origin != 0 else { return }
         guard slots.wait(timeout: .now()) == .success else { onError("Il disco non tiene il passo con l'audio. Registrazione arrestata per evitare perdite silenziose."); return }
@@ -102,11 +105,21 @@ private final class ChunkSink: @unchecked Sendable {
             defer { slots.signal() }
             guard !stopped && !failed else { return }
             do {
-                if firstInputTime == nil { firstInputTime = instant; sampleClock = AudioSampleClock(start: instant) }
-                if abs(instant - (firstInputTime! + inputDuration)) > 0.3 {
-                    try flush()
-                    onError("Discontinuità rilevata nella sorgente \(source.label). La registrazione è stata interrotta; i blocchi salvati sono recuperabili.")
-                    failed = true; return
+                if let firstInputTime {
+                    let delta = instant - (firstInputTime + inputDuration)
+                    guard delta >= -0.3 else { return }
+                    if delta > 0.3 || converter?.inputFormat != copied.format {
+                        // Keep the preceding span when the device resumes or changes format.
+                        if let converter { try append(converter.finish()) }
+                        try flush()
+                        converter = nil
+                        self.firstInputTime = nil
+                    }
+                }
+                if firstInputTime == nil {
+                    firstInputTime = instant
+                    inputDuration = 0
+                    sampleClock = AudioSampleClock(start: max(instant, sampleClock?.nextStart ?? instant))
                 }
                 inputDuration += Double(copied.frameLength) / copied.format.sampleRate
                 if converter == nil { converter = try StreamingAudioConverter(format: copied.format) }
@@ -117,8 +130,8 @@ private final class ChunkSink: @unchecked Sendable {
     private func append(_ input: [Float]) throws {
         guard !input.isEmpty else { return }
         var values = input
-        if let start = sampleClock?.nextStart, start < 0 && samples.isEmpty {
-            let trim = min(values.count, Int(ceil(-start * 16000)))
+        if let start = sampleClock?.nextStart, start < minimumStart && samples.isEmpty {
+            let trim = min(values.count, Int(ceil((minimumStart - start) * 16000)))
             values.removeFirst(trim); sampleClock?.advance(samples: trim)
         }
         guard !values.isEmpty else { return }
@@ -138,7 +151,8 @@ private final class ChunkSink: @unchecked Sendable {
         guard !samples.isEmpty else { return }
         let filename = "audio/\(source.rawValue)_\(UUID().uuidString).caf"
         try AudioFiles.write(samples, to: folder.appendingPathComponent(filename))
-        let chunk = AudioChunk(source: source, start: sampleClock!.nextStart, sampleCount: samples.count, filename: filename)
+        let audible = source == .system ? RecordingReadiness.audibleSamples(samples) : nil
+        let chunk = AudioChunk(source: source, start: sampleClock!.nextStart, sampleCount: samples.count, filename: filename, audibleSampleCount: audible)
         Self.journalLock.lock()
         defer { Self.journalLock.unlock() }
         let journal = folder.appendingPathComponent("journal.jsonl")
@@ -149,63 +163,89 @@ private final class ChunkSink: @unchecked Sendable {
         sampleClock?.advance(samples: samples.count); samples.removeAll(keepingCapacity: true)
         onChunk(chunk)
     }
-    func stop() async {
+    func stop() async -> Double? {
         await withCheckedContinuation { continuation in
             queue.async { [self] in
                 do {
                     if !failed, let converter { try append(converter.finish()) }
                     try flush()
                 } catch { onError(error.localizedDescription) }
-                stopped = true; continuation.resume()
+                stopped = true
+                continuation.resume(returning: sampleClock?.nextStart)
             }
         }
     }
 }
 
 private actor CaptureHardware {
+    private struct Session {
+        let sources: [AudioSource]
+        let folder: URL
+        let epoch = CaptureEpoch()
+        let permit: CapturePermit
+        let onChunk: (AudioChunk) -> Void
+        let onLevel: (AudioSource, Float) -> Void
+        let onError: (String) -> Void
+
+        func sink(for source: AudioSource, minimumStart: Double) -> ChunkSink {
+            ChunkSink(source: source, folder: folder, epoch: epoch, minimumStart: minimumStart, permit: permit,
+                      onChunk: onChunk, onLevel: { onLevel(source, $0) }, onError: onError)
+        }
+    }
+    private var session: Session?
+    private var changingDevices = false
     private var engine: AVAudioEngine?
     private var microphoneTapInstalled = false
     private var tap: AudioObjectID = 0
     private var aggregate: AudioDeviceID = 0
     private var proc: AudioDeviceIOProcID?
-    private var sinks: [ChunkSink] = []
+    private var sinks: [AudioSource: ChunkSink] = [:]
+    private var drains: [UUID: Task<Double?, Never>] = [:]
     private let callbackQueue = DispatchQueue(label: "io.verbale.system-audio")
     public init() {}
     func start(sources: [AudioSource], input: AudioDeviceID, output: AudioDeviceID, folder: URL, permit: CapturePermit,
                       onChunk: @escaping (AudioChunk) -> Void, onLevel: @escaping (AudioSource, Float) -> Void,
                       onError: @escaping (String) -> Void) async throws -> Date {
-        guard engine == nil && aggregate == 0 else { throw VerbaleError.message("Registrazione già avviata") }
-        let epoch = CaptureEpoch()
+        guard session == nil else { throw VerbaleError.message("Registrazione già avviata") }
+        let session = Session(sources: sources, folder: folder, permit: permit, onChunk: onChunk, onLevel: onLevel, onError: onError)
+        self.session = session
         do {
             if sources.contains(.microphone) {
-                let e = AVAudioEngine(); engine = e
-                let node = e.inputNode
-                if input != 0, let unit = node.audioUnit {
-                    var device = input
-                    try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, UInt32(MemoryLayout.size(ofValue: device))), "Selezionare il microfono")
-                }
-                let format = node.outputFormat(forBus: 0)
-                guard format.sampleRate > 0 && format.channelCount > 0 else { throw VerbaleError.message("Microfono non disponibile") }
-                let sink = ChunkSink(source: .microphone, folder: folder, epoch: epoch, permit: permit, onChunk: onChunk, onLevel: { onLevel(.microphone, $0) }, onError: onError)
-                sinks.append(sink)
-                node.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, time in sink.receive(buffer, hostTime: time.hostTime) }
-                microphoneTapInstalled = true
-                e.prepare()
+                try prepareMicrophone(input: input, session: session)
             }
             if sources.contains(.system) {
-                let sink = ChunkSink(source: .system, folder: folder, epoch: epoch, permit: permit, onChunk: onChunk, onLevel: { onLevel(.system, $0) }, onError: onError)
-                sinks.append(sink)
-                try prepareSystem(output: output == 0 ? Devices.defaultDevice(input: false) : output, sink: sink)
+                try prepareSystem(output: output == 0 ? Devices.defaultDevice(input: false) : output, session: session)
             }
             // Heavy tap/aggregate creation is complete before choosing the shared epoch.
             let started = Date()
-            epoch.origin = mach_absolute_time()
+            session.epoch.origin = mach_absolute_time()
             if aggregate != 0 { try check(AudioDeviceStart(aggregate, proc), "Avviare l'audio di sistema") }
             try engine?.start()
             return started
         } catch { permit.close(); await stop(); throw error }
     }
-    private func prepareSystem(output: AudioDeviceID, sink: ChunkSink) throws {
+    private func prepareMicrophone(input: AudioDeviceID, session: Session, minimumStart: Double = 0) throws {
+        let e = AVAudioEngine()
+        engine = e
+        let node = e.inputNode
+        if input != 0 {
+            guard let unit = node.audioUnit else { throw VerbaleError.message("Microfono non disponibile") }
+            var device = input
+            try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, UInt32(MemoryLayout.size(ofValue: device))), "Selezionare il microfono")
+        }
+        let format = node.outputFormat(forBus: 0)
+        guard format.sampleRate > 0 && format.channelCount > 0 else { throw VerbaleError.message("Microfono non disponibile") }
+        let sink = session.sink(for: .microphone, minimumStart: minimumStart)
+        sinks[.microphone] = sink
+        node.installTap(onBus: 0, bufferSize: 4096, format: nil) { buffer, time in
+            if time.isHostTimeValid { sink.receive(buffer, hostTime: time.hostTime) }
+        }
+        microphoneTapInstalled = true
+        e.prepare()
+    }
+    private func prepareSystem(output: AudioDeviceID, session: Session, minimumStart: Double = 0) throws {
+        let sink = session.sink(for: .system, minimumStart: minimumStart)
+        sinks[.system] = sink
         let uid = try Devices.uid(output)
         let description = CATapDescription(__excludingProcesses: [], andDeviceUID: uid, withStream: 0)
         description.isPrivate = true; description.isExclusive = true; description.muteBehavior = .unmuted
@@ -218,34 +258,88 @@ private actor CaptureHardware {
         let dictionary: [String: Any] = [
             kAudioAggregateDeviceNameKey: "Verbale Capture", kAudioAggregateDeviceUIDKey: UUID().uuidString,
             kAudioAggregateDeviceIsPrivateKey: true, kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceMainSubDeviceKey: uid,
-            kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: uid]],
+            // The selected output is already scoped by the tap. Adding the physical
+            // device could place its own input channels ahead of the tap buffers.
             kAudioAggregateDeviceTapListKey: [[kAudioSubTapUIDKey: description.uuid.uuidString, kAudioSubTapDriftCompensationKey: true]]
         ]
         try check(AudioHardwareCreateAggregateDevice(dictionary as CFDictionary, &aggregate), "Creare il dispositivo audio")
         try check(AudioDeviceCreateIOProcIDWithBlock(&proc, aggregate, callbackQueue) { _, input, timestamp, _, _ in
             let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
-            guard let first = buffers.first, first.mDataByteSize > 0, asbd.mBytesPerFrame > 0 else { return }
+            guard let first = buffers.first, first.mDataByteSize > 0, asbd.mBytesPerFrame > 0,
+                  timestamp.pointee.mFlags.contains(.hostTimeValid) else { return }
             let frames = first.mDataByteSize / asbd.mBytesPerFrame
             guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return }
             buffer.frameLength = frames
             let output = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
-            for (from, to) in zip(buffers, output) { if let a = from.mData, let b = to.mData { memcpy(b, a, min(Int(from.mDataByteSize), Int(to.mDataByteSize))) } }
+            guard buffers.count == output.count else { return }
+            for (from, to) in zip(buffers, output) {
+                guard let a = from.mData, let b = to.mData, from.mDataByteSize >= to.mDataByteSize else { return }
+                memcpy(b, a, Int(to.mDataByteSize))
+            }
             sink.receive(buffer, hostTime: timestamp.pointee.mHostTime)
         }, "Collegare l'audio di sistema")
     }
-    public func stop() async {
-        if let engine {
+    private func detach(_ source: AudioSource) -> UUID? {
+        if source == .microphone, let engine {
             if microphoneTapInstalled { engine.inputNode.removeTap(onBus: 0) }
             microphoneTapInstalled = false; engine.stop(); self.engine = nil
         }
-        if aggregate != 0 {
+        if source == .system, aggregate != 0 {
             _ = AudioDeviceStop(aggregate, proc)
             if let proc { _ = AudioDeviceDestroyIOProcID(aggregate, proc) }
             self.proc = nil; _ = AudioHardwareDestroyAggregateDevice(aggregate); aggregate = 0
         }
-        if tap != 0 { _ = AudioHardwareDestroyProcessTap(tap); tap = 0 }
-        for sink in sinks { await sink.stop() }; sinks.removeAll()
+        if source == .system, tap != 0 { _ = AudioHardwareDestroyProcessTap(tap); tap = 0 }
+        guard let sink = sinks.removeValue(forKey: source) else { return nil }
+        let id = UUID()
+        drains[id] = Task { await sink.stop() }
+        return id
+    }
+
+    func changeDevices(input: AudioDeviceID?, output: AudioDeviceID?, permit: CapturePermit) async throws -> [AudioSource: String] {
+        guard let session, session.permit === permit, permit.allowed else { throw CancellationError() }
+        guard !changingDevices else { throw CaptureOperationError.alreadyRunning }
+        changingDevices = true
+        defer { changingDevices = false }
+        var failures: [AudioSource: String] = [:]
+        for (source, device) in [(AudioSource.microphone, input), (.system, output)] {
+            guard let device else { continue }
+            guard session.sources.contains(source) else {
+                failures[source] = "Sorgente non selezionata per questa registrazione."
+                continue
+            }
+            guard self.session?.permit === permit, permit.allowed else { throw CancellationError() }
+            var minimumStart = 0.0
+            if let id = detach(source) {
+                minimumStart = await drains[id]?.value ?? 0
+                drains.removeValue(forKey: id)
+            }
+            guard self.session?.permit === permit, permit.allowed else { throw CancellationError() }
+            do {
+                if source == .microphone {
+                    try prepareMicrophone(input: device, session: session, minimumStart: minimumStart)
+                    try engine?.start()
+                } else {
+                    try prepareSystem(output: device, session: session, minimumStart: minimumStart)
+                    try check(AudioDeviceStart(aggregate, proc), "Riavviare l’audio di sistema")
+                }
+            } catch {
+                if let id = detach(source) {
+                    _ = await drains[id]?.value
+                    drains.removeValue(forKey: id)
+                }
+                failures[source] = error.localizedDescription
+            }
+        }
+        return failures
+    }
+
+    public func stop() async {
+        session = nil
+        for source in AudioSource.allCases { _ = detach(source) }
+        let pending = Array(drains.values)
+        for task in pending { _ = await task.value }
+        drains.removeAll()
     }
 }
 
@@ -272,6 +366,12 @@ public final class CaptureService: Sendable {
                 return try await hardware.start(sources:sources,input:input,output:output,folder:folder,permit:permit,onChunk:onChunk,onLevel:onLevel,onError:onError)
             }, cleanup: { [hardware] in permit.close(); await hardware.stop() })
         } catch { permit.close(); throw error }
+    }
+    /// Updates only the requested sources and keeps the original recording clock.
+    public func changeDevices(input: AudioDeviceID?, output: AudioDeviceID?) async throws -> [AudioSource: String] {
+        guard let permit = permits.active, permit.allowed else { throw CancellationError() }
+        let task = Task { [hardware] in try await hardware.changeDevices(input: input, output: output, permit: permit) }
+        return try await AudioOperationDeadline.wait(for: task, seconds: 10)
     }
     @discardableResult public func stop() async -> Bool {
         permits.close()
