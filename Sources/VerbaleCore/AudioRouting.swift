@@ -38,6 +38,83 @@ public struct RecordedAudioRoute:Codable,Sendable {
         inputName = input?.device.name;outputName = output?.device.name;inputOrigin = input?.origin;outputOrigin = output?.origin
     }
 }
+public struct RecordedAudioRouteChange: Codable, Sendable {
+    public let offset: Double
+    public let route: RecordedAudioRoute
+    public init(offset: Double, route: RecordedAudioRoute) {
+        self.offset = offset
+        self.route = route
+    }
+}
+
+/// Freeze the user's preferences for this session and verify a new route twice
+/// before reopening hardware. A disappearing device can return with the same ID.
+public struct CaptureRouteTracker {
+    public private(set) var current: ResolvedAudioDevice
+    private let choice: String
+    private let isInput: Bool
+    private var pending: RouteDevice?
+    private var mustReopen = false
+    private var attemptedStallRecovery = false
+
+    public init(current: ResolvedAudioDevice, choice: String, isInput: Bool) {
+        self.current = current
+        self.choice = choice
+        self.isInput = isInput
+    }
+
+    public mutating func observe(_ snapshot: AudioRouteSnapshot, stalled: Bool = false) -> ResolvedAudioDevice? {
+        if !stalled { attemptedStallRecovery = false }
+        let available = snapshot.devices.contains { $0 == current.device }
+        if !available { mustReopen = true }
+        let active = isInput ? snapshot.activeTeamsInput : snapshot.activeTeamsOutput
+        let devices = snapshot.devices.filter { isInput ? $0.input : $0.output }
+
+        // An asynchronous Teams snapshot can be empty while muted, or include
+        // several processes. Keep the open device until a change is unambiguous.
+        let activeDevices = devices.filter { active.contains($0.runtimeID) }
+        let target: ResolvedAudioDevice?
+        if choice == AudioRouteSelection.automatic, available, current.origin == .teams, activeDevices.count != 1 {
+            target = current
+        } else if choice == AudioRouteSelection.automatic, activeDevices.count != 1 {
+            target = try? AudioRouteSelection.resolve(AudioRouteSelection.macDefault, input: isInput, snapshot: snapshot)
+        } else {
+            target = try? AudioRouteSelection.resolve(choice, input: isInput, snapshot: snapshot)
+        }
+        let recoveringStall = stalled && !attemptedStallRecovery && activeDevices.contains(current.device)
+        guard let target, mustReopen || target.device != current.device || recoveringStall else {
+            pending = nil
+            return nil
+        }
+        guard pending == target.device else {
+            pending = target.device
+            return nil
+        }
+        pending = nil
+        if recoveringStall { attemptedStallRecovery = true }
+        return target
+    }
+
+    public mutating func applied(_ target: ResolvedAudioDevice) {
+        current = target
+        mustReopen = false
+    }
+
+    public mutating func failed() { mustReopen = true }
+
+    public func warning(_ snapshot: AudioRouteSnapshot) -> String? {
+        let source: AudioSource = isInput ? .microphone : .system
+        if mustReopen || !snapshot.devices.contains(current.device) {
+            return "\(source.label): dispositivo di registrazione non disponibile. Verbale sta verificando il collegamento."
+        }
+        if !isInput { return AudioRouteSelection.outputMismatchWarning(current, snapshot: snapshot) }
+        if !snapshot.activeTeamsInput.isEmpty, !snapshot.activeTeamsInput.contains(current.device.runtimeID) {
+            return "Il microfono registrato (\(current.device.name)) è diverso da quello attivo in Teams."
+        }
+        return nil
+    }
+}
+
 public enum AudioRouteSelection {
     public static let automatic = "automatic"
     public static let macDefault = "mac-default"

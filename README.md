@@ -11,7 +11,7 @@ Apri `dist/Verbale.app`. Il pacchetto locale è firmato ad-hoc; non è una relea
 3. Avvia la registrazione e concedi i permessi richiesti da macOS per microfono e audio di sistema.
 4. Termina per avviare e completare la trascrizione. Per ridurre i consumi durante la call, la modalità iniziale salva l’audio e rimanda testo e interlocutori al termine. In **Impostazioni → Registrazione → Trascrizione** puoi scegliere l’elaborazione durante la registrazione. **Apri cartella** mostra Markdown, JSON e note.
 
-Se una sorgente selezionata non ha prodotto blocchi audio, la trascrizione mostra una segnalazione esplicita anche per le vecchie sessioni. Dopo 30 secondi senza blocchi di sistema, un avviso nella finestra, nel widget e nel menu invita a verificare uscita e permessi senza interrompere il microfono; una riunione silenziosa può produrre lo stesso avviso. Quando Teams espone un’uscita attiva diversa da quella scelta, Verbale segnala la differenza senza cambiare la scelta manuale.
+Verbale segnala una traccia senza blocchi, un’interruzione dopo l’avvio o un audio di sistema a lungo molto debole. Gli avvisi compaiono nella finestra, nel widget e nel menu. L’archivio mostra anche le interruzioni ricavabili dalla timeline delle registrazioni precedenti. Durante una pausa della conversazione può comparire l’avviso sul segnale debole.
 
 **Salva anche l’audio è attivo di default**, anche aggiornando dalla 0.1. Puoi togliere la spunta dalla pagina Riunione, dalle Impostazioni o dal widget: la scelta viene ricordata tra gli avvii e vale per le prossime sessioni. Durante registrazione ed elaborazione l'opzione è bloccata, così non cambia la politica della sessione già avviata.
 
@@ -350,7 +350,7 @@ In **Impostazioni → Avanzate → Dispositivi audio**, microfono e uscita posso
 - **Predefinito del Mac**: segue esplicitamente la scelta di macOS al momento dell’avvio.
 - **Nome del dispositivo**: scelta manuale, sempre prioritaria. Viene ricordata tramite UID stabile, anche se macOS cambia l’identificativo numerico dopo una riconnessione. Un dispositivo manuale assente viene segnalato, senza sostituirlo automaticamente.
 
-Le preferenze possono essere configurate anche durante una registrazione: valgono per la successiva. Il dispositivo della registrazione attuale resta fissato e i suoi nomi sono conservati nel manifest. Il passaggio automatico fra dispositivi durante una call non è implementato in questa release. Le sorgenti Microfono/Audio di sistema e la modalità Cuffie/Altoparlanti restano quelle scelte dall’utente.
+Le preferenze modificate durante una registrazione valgono per la successiva. Durante la call la scelta **Automatico** segue i cambi di dispositivo rilevati da Teams e **Predefinito del Mac** segue i cambi del predefinito. La scelta manuale resta sullo stesso dispositivo e segnala una differenza con Teams. Verbale riapre solo la sorgente interessata e conserva la timeline e i cambi di dispositivo nel manifest.
 
 Le selezioni manuali delle versioni precedenti vengono migrate quando il dispositivo è disponibile. Se non è possibile identificarlo dal vecchio ID, resta una selezione manuale non disponibile da aggiornare. Il rilevamento usa metadati Core Audio e non modifica le impostazioni di Teams o i dispositivi predefiniti del Mac.
 

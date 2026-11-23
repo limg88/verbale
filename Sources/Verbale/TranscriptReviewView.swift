@@ -49,7 +49,7 @@ struct TranscriptReviewView: View {
                 Label(model.viewingRecording && !meeting.chunks.isEmpty ? "Audio salvato sul Mac" : meeting.exported ? "Salvata" : "Da salvare", systemImage: (model.viewingRecording && !meeting.chunks.isEmpty) || meeting.exported ? "checkmark.circle" : "clock").font(.caption).foregroundStyle(.secondary)
             }
             if !model.viewingRecording {
-                ForEach(RecordingReadiness.missingSourceWarnings(meeting.sources,chunks:meeting.chunks,segments:meeting.segments),id:\.self) { warning in
+                ForEach(RecordingReadiness.archiveWarnings(meeting),id:\.self) { warning in
                     Label(warning,systemImage:"exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange)
                 }
             }

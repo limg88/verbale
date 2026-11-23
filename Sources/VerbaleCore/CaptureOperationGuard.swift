@@ -67,6 +67,77 @@ public actor CaptureOperationGuard {
 }
 
 public enum RecordingReadiness {
+    private static let signalWarning = "Audio di sistema molto debole. Se gli altri stanno parlando, verifica l’uscita attiva della call."
+    private static let diagnosticPrefix = "Registrazione incompleta:"
+
+    /// Measure the raw recording before echo cancellation or transcription.
+    static func audibleSamples(_ samples: [Float]) -> Int {
+        var audible = 0
+        for start in stride(from: 0, to: samples.count, by: 16000) {
+            let window = samples[start..<min(start + 16000, samples.count)]
+            let energy = window.reduce(Float.zero) { $0 + $1 * $1 }
+            if energy > Float(window.count) * 0.00001 { audible += window.count }
+        }
+        return audible
+    }
+
+    private static func weakSystemSignal(_ chunks: [AudioChunk]) -> Bool {
+        var measured = 0
+        var audible = 0
+        for chunk in chunks where chunk.source == .system {
+            guard let count = chunk.audibleSampleCount, (0...max(0, chunk.sampleCount)).contains(count) else { continue }
+            measured += chunk.sampleCount
+            audible += count
+        }
+        return measured >= 30 * 16000 && Double(audible) / Double(measured) < 0.15
+    }
+
+    public static func liveWarning(_ sources: [AudioSource], chunks: [AudioChunk], elapsed: Double) -> String? {
+        for source in sources {
+            if stalled(source, chunks: chunks, elapsed: elapsed) {
+                return "\(source.label): nessun nuovo blocco audio. Verifica il dispositivo usato nella call."
+            }
+        }
+        if let missing = systemWarning(sources, chunks: chunks, elapsed: elapsed) { return missing }
+        if sources.contains(.system),
+           weakSystemSignal(chunks.filter { $0.start + $0.duration >= elapsed - 40 }) { return signalWarning }
+        return nil
+    }
+
+    public static func stalled(_ source: AudioSource, chunks: [AudioChunk], elapsed: Double) -> Bool {
+        guard let last = chunks.lazy.filter({ $0.source == source }).map({ $0.start + $0.duration }).max() else { return false }
+        return elapsed - last >= 12
+    }
+
+    /// Read-only reconstruction also covers old manifests with a reliable sample timeline.
+    public static func archiveWarnings(_ meeting: Meeting) -> [String] {
+        let warnings = missingSourceWarnings(meeting.sources, chunks: meeting.chunks, segments: meeting.segments)
+        let stored = meeting.warnings.filter {
+            $0.hasPrefix(diagnosticPrefix) || $0 == signalWarning || $0.hasPrefix("L’uscita registrata")
+        }
+        var result = stored + warnings.filter { !stored.contains($0) }
+        if meeting.captureTimelineVersion ?? 0 >= 2 {
+            for source in meeting.sources {
+                let chunks = meeting.chunks.filter { $0.source == source }.sorted { $0.start < $1.start }
+                guard let first = chunks.first else { continue }
+                var end = first.start + first.duration
+                var largestGap = 0.0
+                for chunk in chunks.dropFirst() {
+                    largestGap = max(largestGap, chunk.start - end)
+                    end = max(end, chunk.start + chunk.duration)
+                }
+                if max(largestGap, meeting.duration - end) >= 3 {
+                    let warning = "\(diagnosticPrefix) la traccia «\(source.label)» ha un’interruzione di almeno 3 secondi."
+                    if !result.contains(warning) { result.append(warning) }
+                }
+            }
+        }
+        if meeting.sources.contains(.system), weakSystemSignal(meeting.chunks), !result.contains(signalWarning) {
+            result.append(signalWarning)
+        }
+        return result
+    }
+
     public static func systemWarning(_ sources: [AudioSource], chunks: [AudioChunk], elapsed: Double) -> String? {
         guard elapsed >= 30, waitingForSystem(sources,chunks:chunks) else { return nil }
         let continued = sources.contains(.microphone) ? " Il microfono continua a registrare." : ""

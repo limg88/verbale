@@ -41,9 +41,13 @@ public struct AudioChunk: Codable, Identifiable, Sendable {
     public var processed: Bool = false
     /// Optional for older journals; raw `filename` is never replaced.
     public var cleanedFilename: String?
+    /// Samples in roughly one-second windows whose RMS exceeded -50 dBFS.
+    /// Older recordings and processed copies can omit this measurement.
+    public var audibleSampleCount: Int?
     public var duration: Double { Double(sampleCount) / 16000 }
-    public init(source: AudioSource, start: Double, sampleCount: Int, filename: String) {
+    public init(source: AudioSource, start: Double, sampleCount: Int, filename: String, audibleSampleCount: Int? = nil) {
         self.source = source; self.start = start; self.sampleCount = sampleCount; self.filename = filename
+        self.audibleSampleCount = audibleSampleCount
     }
 }
 public struct Screenshot: Codable, Identifiable, Sendable {
@@ -99,6 +103,8 @@ public struct Meeting: Codable, Identifiable, Sendable {
     public var echoProcessingVersion: Int?
     public var voiceMatches: [VoiceMatch]?
     public var audioRoute:RecordedAudioRoute?
+    public var audioRouteChanges: [RecordedAudioRouteChange]?
+    public var latestAudioRoute: RecordedAudioRoute? { audioRouteChanges?.last?.route ?? audioRoute }
     public var transcriptionTiming: TranscriptionTiming?
     public var resumeAfterTeams: Bool?
     /// Original ASR hypotheses retained when overlapping windows duplicate a word.

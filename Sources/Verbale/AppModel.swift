@@ -46,6 +46,11 @@ import VerbaleCore
     }
     var transcriptionDeferred: Bool { !((recording ?? current)?.transcriptionTiming ?? .duringRecording).allowsProcessing(isRecording:isRecording) }
     private var exportCadence = RecordingExportCadence()
+    private var captureRoutes: [AudioSource: CaptureRouteTracker] = [:]
+    private var captureRouteTask: Task<Void, Never>?
+    private var nextCaptureRouteCheck: TimeInterval = 0
+    private var liveCaptureRouteWarning: String?
+    @Published private(set) var captureWarning: String?
     @Published var listeningMode = ListeningMode.saved() {
         didSet { UserDefaults.standard.set(listeningMode.rawValue, forKey: "listeningMode") }
     }
@@ -507,9 +512,19 @@ import VerbaleCore
             installAudioSnapshot(routeSnapshot)
             let selectedInput = sources.contains(.microphone) ? try AudioRouteSelection.resolve(inputChoice,input:true,snapshot:routeSnapshot):nil
             let selectedOutput = sources.contains(.system) ? try AudioRouteSelection.resolve(outputChoice,input:false,snapshot:routeSnapshot):nil
+            captureRoutes.removeAll()
+            if let selectedInput {
+                captureRoutes[.microphone] = CaptureRouteTracker(current: selectedInput, choice: inputChoice, isInput: true)
+            }
+            if let selectedOutput {
+                captureRoutes[.system] = CaptureRouteTracker(current: selectedOutput, choice: outputChoice, isInput: false)
+            }
+            nextCaptureRouteCheck = 0
+            liveCaptureRouteWarning = AudioRouteSelection.outputMismatchWarning(selectedOutput, snapshot: routeSnapshot)
+            captureWarning = liveCaptureRouteWarning
             var meeting = Meeting(title: title, sources: sources, destination: destination, keepAudio: keepAudio)
             meeting.audioRoute = RecordedAudioRoute(input:selectedInput,output:selectedOutput)
-            if let warning = AudioRouteSelection.outputMismatchWarning(selectedOutput,snapshot:routeSnapshot) { meeting.warnings.append(warning) }
+            if let liveCaptureRouteWarning { meeting.warnings.append(liveCaptureRouteWarning) }
             meeting.transcriptionTiming = timing
             exportCadence = RecordingExportCadence()
             meeting.keepRecovery = keepRecovery
@@ -530,7 +545,10 @@ import VerbaleCore
                 Task { @MainActor in
                     guard let self, self.recording?.id == id else { return }
                     self.error = text
-                    if self.isRecording { await self.stop() }
+                    if self.isRecording {
+                        self.saveCaptureWarning(text)
+                        await self.stop()
+                    }
                 }
             })
             if let failure = self.error { throw VerbaleError.message(failure) }
@@ -546,24 +564,113 @@ import VerbaleCore
             isRecording = false; automaticSessionID = nil; timer?.invalidate(); timer = nil
             self.error = error.localizedDescription; status = "Preparazione non riuscita"
             await workQueue.setCaptureActive(false)
-            if var meeting = recording, meeting.state == .recording { meeting.state = .interrupted;try? store.save(meeting);installRecording(meeting) }
+            if recording?.state == .recording {
+                saveCaptureWarning(error.localizedDescription)
+                if var meeting = recording {
+                    meeting.state = .interrupted
+                    try? store.save(meeting)
+                    installRecording(meeting)
+                }
+            }
             activeRecording=nil
+            captureWarning = nil
             await engine.unload()
             await echoCancellation.unload()
         }
     }
-    var captureWarning: String? {
-        guard isRecording, let meeting = recording else { return nil }
-        return RecordingReadiness.systemWarning(meeting.sources,chunks:meeting.chunks,elapsed:elapsed) ?? meeting.warnings.first { $0.hasPrefix("L’uscita registrata") }
+    private func captureWarning(for meeting: Meeting) -> String? {
+        if let liveCaptureRouteWarning { return liveCaptureRouteWarning }
+        if RecordingReadiness.missingMicrophone(meeting.sources, chunks: meeting.chunks, elapsed: elapsed) {
+            return "Nessun blocco ricevuto dal microfono. Verifica il dispositivo e il permesso Microfono."
+        }
+        return RecordingReadiness.liveWarning(meeting.sources, chunks: meeting.chunks, elapsed: elapsed)
     }
     private func tick() {
         guard isRecording, let current=recording else { return }
         elapsed = Date().timeIntervalSince(current.started)
-        if RecordingReadiness.missingMicrophone(current.sources,chunks:current.chunks,elapsed:elapsed) {
-            error = "Nessun buffer ricevuto dal microfono. Verifica il dispositivo e il permesso Microfono."; Task { await stop() }
-        } else if RecordingReadiness.waitingForSystem(current.sources,chunks:current.chunks) {
-            status = captureWarning ?? "Registrazione attiva · in attesa dell’audio di sistema"
+        scheduleCaptureRouteCheck(id: current.id)
+        let warning = captureWarning(for: current)
+        if captureWarning != warning { captureWarning = warning }
+        if let warning { status = warning }
+        else if RecordingReadiness.waitingForSystem(current.sources,chunks:current.chunks) {
+            status = "Registrazione attiva · in attesa dell’audio di sistema"
         } else { status = "Registrazione in corso" }
+    }
+
+    private func saveCaptureWarning(_ text: String) {
+        guard var meeting = recording else { return }
+        let warning = "Registrazione incompleta: \(text)"
+        guard !meeting.warnings.contains(warning) else { return }
+        meeting.warnings.append(warning)
+        meeting.exported = false
+        installRecording(meeting)
+        do { try store.save(meeting) }
+        catch { exportError = error.localizedDescription }
+    }
+
+    private func scheduleCaptureRouteCheck(id: UUID) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard captureRouteTask == nil, !captureRoutes.isEmpty, now >= nextCaptureRouteCheck else { return }
+        nextCaptureRouteCheck = now + 4
+        captureRouteTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.captureRouteTask = nil }
+            await self.checkCaptureRoutes(id: id)
+        }
+    }
+
+    private func checkCaptureRoutes(id: UUID) async {
+        let snapshot: AudioRouteSnapshot
+        do { snapshot = try await readAudioSnapshot(forceTeams: true) }
+        catch {
+            if isRecording, recording?.id == id {
+                nextCaptureRouteCheck = ProcessInfo.processInfo.systemUptime + 15
+            }
+            return
+        }
+        guard isRecording, let meeting = recording, meeting.id == id, !Task.isCancelled else { return }
+        var changes: [AudioSource: ResolvedAudioDevice] = [:]
+        for source in AudioSource.allCases {
+            let stalled = RecordingReadiness.stalled(source, chunks: meeting.chunks, elapsed: elapsed)
+            if let change = captureRoutes[source]?.observe(snapshot, stalled: stalled) { changes[source] = change }
+        }
+        liveCaptureRouteWarning = AudioSource.allCases.compactMap { captureRoutes[$0]?.warning(snapshot) }.first
+        guard !changes.isEmpty else { return }
+
+        let failures: [AudioSource: String]
+        do {
+            failures = try await capture.changeDevices(input: changes[.microphone]?.device.runtimeID,
+                                                       output: changes[.system]?.device.runtimeID)
+        } catch {
+            guard isRecording, recording?.id == id, !Task.isCancelled else { return }
+            // Hardware may still be returning from Core Audio. Avoid overlapping retries.
+            nextCaptureRouteCheck = .infinity
+            let warning = "Cambio del dispositivo audio non verificato. Controlla i livelli della registrazione."
+            liveCaptureRouteWarning = warning
+            saveCaptureWarning(warning)
+            return
+        }
+        guard isRecording, recording?.id == id, !Task.isCancelled else { return }
+        var changed = false
+        for (source, target) in changes {
+            if let failure = failures[source] {
+                captureRoutes[source]?.failed()
+                saveCaptureWarning("\(source.label): impossibile riaprire «\(target.device.name)». \(failure)")
+            } else {
+                changed = changed || captureRoutes[source]?.current.device != target.device
+                captureRoutes[source]?.applied(target)
+            }
+        }
+        liveCaptureRouteWarning = AudioSource.allCases.compactMap { captureRoutes[$0]?.warning(snapshot) }.first
+        if changed, var meeting = recording {
+            let route = RecordedAudioRoute(input: captureRoutes[.microphone]?.current, output: captureRoutes[.system]?.current)
+            let change = RecordedAudioRouteChange(offset: Date().timeIntervalSince(meeting.started), route: route)
+            meeting.audioRouteChanges = (meeting.audioRouteChanges ?? []) + [change]
+            meeting.exported = false
+            installRecording(meeting)
+            do { try store.save(meeting) }
+            catch { exportError = error.localizedDescription }
+        }
     }
 
     private func receive(_ chunk: AudioChunk, id: UUID) {
@@ -602,8 +709,9 @@ import VerbaleCore
                 let siblings = meeting.chunks.filter { $0.source == chunk.source }.sorted { $0.start < $1.start }
                 let index = siblings.firstIndex { $0.id == chunk.id }!
                 let needsEchoCancellation = chunk.source == .microphone && meeting.usesEchoCancellation
-                let neighborhood = siblings[max(0, index - (needsEchoCancellation ? 2 : 1))...min(index + 1, siblings.count - 1)]
-                let transcriptionOffset = siblings[max(0, index - 1)].start
+                let context = TranscriptBoundaries.audioContext(siblings, at: index, warmupBlocks: needsEchoCancellation ? 2 : 1)
+                let neighborhood = siblings[context]
+                let transcriptionOffset = siblings[max(context.lowerBound, index - 1)].start
                 var audio: [Float] = []; var offset = neighborhood.first!.start
                 for item in neighborhood {
                     let start = Int((item.start - offset) * 16000)
@@ -664,13 +772,24 @@ import VerbaleCore
         automaticSessionID = nil
         let stoppedAt = Date()
         busy = true; isRecording = false; timer?.invalidate(); timer = nil; levels = [:]; status = "Finalizzazione…"
+        captureRouteTask?.cancel()
+        liveCaptureRouteWarning = nil
+        captureWarning = nil
         let captureStopped = await capture.stop()
-        if !captureStopped { failedProcessing = true; self.error = "L’arresto del dispositivo audio è in ritardo. I blocchi salvati restano recuperabili; attendi il ripristino o chiudi e riapri Verbale." }
+        if !captureStopped {
+            failedProcessing = true
+            let warning = "L’arresto del dispositivo audio è in ritardo. I blocchi salvati restano recuperabili."
+            self.error = warning
+            saveCaptureWarning(warning)
+        }
+        var hasCaptureWarnings = false
         if var meeting = recording {
             // Journal replay also accounts for callbacks enqueued just before stop.
             meeting = (try? store.recover(meeting)) ?? meeting
             meeting.duration = max(meeting.duration,stoppedAt.timeIntervalSince(meeting.started))
-            for warning in RecordingReadiness.missingSourceWarnings(meeting.sources,chunks:meeting.chunks) where !meeting.warnings.contains(warning) { meeting.warnings.append(warning) }
+            let warnings = RecordingReadiness.archiveWarnings(meeting)
+            hasCaptureWarnings = !warnings.isEmpty
+            meeting.warnings.append(contentsOf: warnings.filter { !meeting.warnings.contains($0) })
             meeting.state = .processing;installRecording(meeting);try? store.save(meeting)
         }
         processing?.cancel()
@@ -686,7 +805,8 @@ import VerbaleCore
         }
         await workQueue.setCaptureActive(false)
         activeRecording=nil
-        status="Audio salvato · trascrizione in coda";busy=false
+        status = hasCaptureWarnings ? "Audio salvato con avvisi" : "Audio salvato · trascrizione in coda"
+        busy = false
     }
     private func finishSession() {
         guard var meeting = current else { return }

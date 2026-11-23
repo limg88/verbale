@@ -15,7 +15,7 @@ public struct AudioSampleClock {
 /// output buffer, and flush the final filter tail. Never discard an unrequested input.
 public final class StreamingAudioConverter {
     private let converter: AVAudioConverter
-    private let inputFormat: AVAudioFormat
+    let inputFormat: AVAudioFormat
     private let outputFormat: AVAudioFormat
     private var inputFrames: Int64 = 0
     private var emittedFrames = 0

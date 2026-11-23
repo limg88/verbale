@@ -117,11 +117,11 @@ struct DesktopSettingsView: View {
                         if model.routingRefreshing { ProgressView().controlSize(.small) }
                     }
                     if !model.routingStatus.isEmpty { Text(model.routingStatus).font(.caption).foregroundStyle(.orange) }
-                    if model.isRecording,let route = model.recording?.audioRoute {
+                    if model.isRecording,let route = model.recording?.latestAudioRoute {
                         Text("In questa registrazione: "+[route.inputName.map { "microfono "+$0 },route.outputName.map { "uscita "+$0 }].compactMap { $0 }.joined(separator:" · ")).font(.caption).foregroundStyle(.secondary)
                         Text("Le modifiche ai dispositivi si applicano alla prossima registrazione.").font(.caption).foregroundStyle(.secondary)
                     }
-                    Text("Automatico rileva i dispositivi di Teams all’avvio della registrazione; se la scelta non è univoca usa i predefiniti del Mac. Una scelta manuale ha sempre la precedenza.").font(.callout).foregroundStyle(.secondary)
+                    Text("Automatico segue i dispositivi rilevati da Teams. All’avvio, se la scelta non è univoca, usa i predefiniti del Mac.").font(.callout).foregroundStyle(.secondary)
                     Text("Con gli altoparlanti, scegli la modalità di riduzione eco: richiede microfono e audio di sistema attivi. Le sorgenti da registrare e la modalità di ascolto restano quelle che hai scelto.").font(.callout).foregroundStyle(.secondary)
                 }
             }
